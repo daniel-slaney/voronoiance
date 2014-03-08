@@ -1,0 +1,6 @@
+TODO
+
+- Simple level gen
+  - Make a room
+    - Get list of points, a convex hull and possibly a graph.
+    - points can be marked as solid or not

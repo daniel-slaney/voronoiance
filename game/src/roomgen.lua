@@ -8,17 +8,15 @@
 -- An array of points is the result.
 --
 
--- Causes loop.
-require 'terrains'
-local newgrid = require 'lib/newgrid'
+local newgrid = require 'src/newgrid'
 
-roomgen = {
+local roomgen = {
 	grid = nil,
 }
 
 local function vertex( x, y, terrain, fringe )
-	assert(terrain)
-	assert(fringe ~= nil or terrain == terrains.filler)
+	-- assert(terrain)
+	-- assert(fringe ~= nil or terrain == terrains.filler)
 
 	return {
 		x = x,
@@ -581,3 +579,5 @@ function roomgen.enclose( aabb, margin, terrain, fringe )
 
 	return result
 end
+
+return roomgen

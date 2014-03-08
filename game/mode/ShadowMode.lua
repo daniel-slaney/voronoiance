@@ -180,7 +180,3 @@ function ShadowMode:keypressed( key, is_repeat )
 	end
 end
 
-
-
-
-

@@ -2,7 +2,7 @@
 -- lib/AABB.lua
 --
 
-require 'Vector'
+local Vector = require 'src/Vector'
 
 local AABB = {}
 AABB.__index = AABB
