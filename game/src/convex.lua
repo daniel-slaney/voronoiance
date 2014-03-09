@@ -146,7 +146,8 @@ local function collides( hull1, hull2, offset1, offset2 )
 		local min1, max1 = math.huge, -math.huge
 
 		for k = 1, #hull1 do
-			vsub(disp, hull1[k], origin)
+			vadd(disp, hull1[k], offset1)
+			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
 			min1 = math.min(min1, proj)
@@ -156,7 +157,8 @@ local function collides( hull1, hull2, offset1, offset2 )
 		local min2, max2 = math.huge, -math.huge
 
 		for k = 1, #hull2 do
-			vsub(disp, hull2[k], origin)
+			vadd(disp, hull2[k], offset2)
+			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
 			min2 = math.min(min2, proj)
@@ -176,12 +178,13 @@ local function collides( hull1, hull2, offset1, offset2 )
 		vsub(norm, p2, p1)
 		vnorm(norm)
 
-		vadd(origin, p1, offset1)
+		vadd(origin, p1, offset2)
 
 		local min1, max1 = math.huge, -math.huge
 
 		for k = 1, #hull2 do
-			vsub(disp, hull2[k], origin)
+			vadd(disp, hull2[k], offset2)
+			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
 			min1 = math.min(min1, proj)
@@ -191,7 +194,8 @@ local function collides( hull1, hull2, offset1, offset2 )
 		local min2, max2 = math.huge, -math.huge
 
 		for k = 1, #hull1 do
-			vsub(disp, hull1[k], origin)
+			vadd(disp, hull1[k], offset1)
+			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
 			min2 = math.min(min2, proj)

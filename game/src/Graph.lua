@@ -18,7 +18,7 @@
 --
 
 
-Graph = {}
+local Graph = {}
 Graph.__index = Graph
 
 function Graph.new( vertices, edges )
@@ -1017,13 +1017,5 @@ if arg then
 	print(host:dotFile(nil, function ( vertex ) return vertex.tag end))
 end
 
-
-
-
-
-
-
-
-
-
+return Graph
 

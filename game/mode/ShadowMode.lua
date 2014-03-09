@@ -177,6 +177,10 @@ function ShadowMode:keypressed( key, is_repeat )
 		self.cells, self.casters = gen(self.numPoints)
 	elseif key == 's' then
 		self.shadows = not self.shadows
+	elseif key == 'q' then
+		local seed = os.time()
+		printf('seed:%s', seed)
+		math.randomseed(seed)
 	end
 end
 

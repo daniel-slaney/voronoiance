@@ -94,7 +94,6 @@ function Viewport:setup()
 	local yScale = windowHeight / portal:height()
 
 	love.graphics.scale(xScale, yScale)
-	
 	love.graphics.translate(-portal.xmin, -portal.ymin)
 end
 
