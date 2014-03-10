@@ -15,8 +15,10 @@ function LevelMode:enter()
 end
 
 function LevelMode:gen()
-	local genfunc = roomgen.brownianhexgrid
+	-- local genfunc = roomgen.brownianhexgrid
 	-- local genfunc = roomgen.hexgrid
+	-- local genfunc = roomgen.enclose
+	local genfunc = roomgen.random
 	local extents = {
 		width = {
 			min = 100,
@@ -38,14 +40,31 @@ end
 
 local zoom = true
 local drawVoronoi = false
+local offsetX = 0
+local offsetY = 0
 
 function LevelMode:draw()
 	local rooms = self.rooms
 
-	if zoom then
-		love.graphics.scale(1/3, 1/3)
-		-- love.graphics.translate(-800, -600)
-		love.graphics.translate(800, 600)
+	if zoom and self.level then
+		local sw, sh = love.graphics.getDimensions()
+		local screen = AABB.new {
+			xmin = 0,
+			xmax = sw,
+			ymin = 0,
+			ymax = sh,
+		}
+		local aabb = self.level.aabb
+		local viewport = AABB.new(aabb)
+		viewport:similarise(screen)
+		local vw, vh = viewport:width(), viewport:height()
+		local aspectW = sw / vw
+		local aspectH = sh / vh
+
+		love.graphics.scale(aspectW, aspectH)
+		love.graphics.translate(-viewport.xmin, -viewport.ymin)
+	else
+		love.graphics.translate(-offsetX, -offsetY)
 	end
 
 	if self.level then
@@ -54,9 +73,9 @@ function LevelMode:draw()
 		if drawVoronoi then
 			for _, point in ipairs(self.level.points) do
 				if point.terrain == 'floor' then
-					love.graphics.setColor(64, 64, 64, 255)
+					love.graphics.setColor(184, 118, 61, 255)
 				else
-					love.graphics.setColor(64, 0, 0, 255)
+					love.graphics.setColor(64, 64, 64, 255)
 				end
 
 				love.graphics.polygon('fill', point.poly)
@@ -88,8 +107,10 @@ function LevelMode:draw()
 
 				if point.terrain == 'floor' then
 					love.graphics.setColor(0, 255, 0, 255)
+				elseif points.terrain == 'filler' then
+					love.graphics.setColor(255, 0, 255, 255)
 				else
-					love.graphics.setColor(255, 0, 0, 255)
+					love.graphics.setColor(255, 255, 255, 255)
 				end
 
 				love.graphics.circle('fill', point.x, point.y, radius)
@@ -106,12 +127,12 @@ function LevelMode:draw()
 			love.graphics.line(x+d, y+d, x-d, y-d)
 			love.graphics.line(x-d, y+d, x+d, y-d)
 
-			love.graphics.setColor(255, 255, 0, 255)
-			local aabb = room.aabb
-			love.graphics.line(aabb.xmin, aabb.ymin, aabb.xmax, aabb.ymin)
-			love.graphics.line(aabb.xmax, aabb.ymin, aabb.xmax, aabb.ymax)
-			love.graphics.line(aabb.xmax, aabb.ymax, aabb.xmin, aabb.ymax)
-			love.graphics.line(aabb.xmin, aabb.ymax, aabb.xmin, aabb.ymin)
+			-- love.graphics.setColor(255, 255, 0, 255)
+			-- local aabb = room.aabb
+			-- love.graphics.line(aabb.xmin, aabb.ymin, aabb.xmax, aabb.ymin)
+			-- love.graphics.line(aabb.xmax, aabb.ymin, aabb.xmax, aabb.ymax)
+			-- love.graphics.line(aabb.xmax, aabb.ymax, aabb.xmin, aabb.ymax)
+			-- love.graphics.line(aabb.xmin, aabb.ymax, aabb.xmin, aabb.ymin)
 
 			local graph = room.graph
 
@@ -142,7 +163,7 @@ function LevelMode:draw()
 			love.graphics.circle('fill', point.x, point.y, radius)
 		end
 
-		love.graphics.setColor(0, 128, 64, 255)
+		love.graphics.setColor(255, 0, 255, 255)
 		for _, point in ipairs(self.level.fillers) do
 			local radius = 4
 			love.graphics.circle('fill', point.x, point.y, radius)
@@ -150,6 +171,8 @@ function LevelMode:draw()
 
 	end
 end
+
+local delta = 100
 
 function LevelMode:keypressed( key, is_repeat )
 	if key == ' ' then
@@ -164,6 +187,14 @@ function LevelMode:keypressed( key, is_repeat )
 		drawVoronoi = not drawVoronoi
 	elseif key == 'z' then
 		zoom = not zoom
+	elseif key == 'right' then
+		offsetX = offsetX + delta
+	elseif key == 'left' then
+		offsetX = offsetX - delta
+	elseif key == 'down' then
+		offsetY = offsetY + delta
+	elseif key == 'up' then
+		offsetY = offsetY - delta
 	end
 end
 

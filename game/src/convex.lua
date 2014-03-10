@@ -65,7 +65,7 @@ local function hull( points )
 end
 
 -- NOTE: counts a point on the edge of the hull as being inside.
-local function contains( point, hull )
+local function contains( hull, point )
 	local x, y = point.x, point.y
 
 	for index = 1, #hull do
@@ -124,9 +124,11 @@ local function centroid( hull )
 end
 
 -- SAT based convex hull collision test.
-local function collides( hull1, hull2, offset1, offset2 )
+local function collides( hull1, hull2, offset1, offset2, scale )
+	scale = scale or 1.25
 	local vnorm = Vector.normalise
 	local vadd = Vector.add
+	local vmulvn = Vector.mulvn
 	local vsub = Vector.sub
 	local vdot = Vector.dot
 	local norm = Vector.new { x=0, y=0 }
@@ -147,6 +149,7 @@ local function collides( hull1, hull2, offset1, offset2 )
 
 		for k = 1, #hull1 do
 			vadd(disp, hull1[k], offset1)
+			vmulvn(disp, disp, scale)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -158,6 +161,7 @@ local function collides( hull1, hull2, offset1, offset2 )
 
 		for k = 1, #hull2 do
 			vadd(disp, hull2[k], offset2)
+			vmulvn(disp, disp, scale)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -184,6 +188,7 @@ local function collides( hull1, hull2, offset1, offset2 )
 
 		for k = 1, #hull2 do
 			vadd(disp, hull2[k], offset2)
+			vmulvn(disp, disp, scale)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -195,6 +200,7 @@ local function collides( hull1, hull2, offset1, offset2 )
 
 		for k = 1, #hull1 do
 			vadd(disp, hull1[k], offset1)
+			vmulvn(disp, disp, scale)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 

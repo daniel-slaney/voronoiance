@@ -47,6 +47,7 @@ function table.append( tbl1, tbl2 )
 end
 
 function table.random( tbl )
+	assert(next(tbl))
 	local count = table.count(tbl)
 
 	local index = math.random(1, count)

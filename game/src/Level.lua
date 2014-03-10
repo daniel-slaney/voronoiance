@@ -64,6 +64,10 @@ function Level:_roomgen( genfunc, extents, margin )
 
 		local aabb = AABB.newFromPoints(points)
 
+		for _, point in ipairs(points) do
+			point.hull = hull
+		end
+
 		return {
 			points = points,
 			hull = hull,
@@ -197,7 +201,14 @@ function Level:_gencorridors( margin )
 			-- TODO: if numPoints < 1 then something has gone wrong, maybe
 			--       assert on it. Need to ensure the layoutgen functions
 			--       always leave at least 2*margin distance between rooms.
+			
 			local numPoints = math.round(distance / margin) - 1
+
+			if distance > margin and numPoints == 0 then
+				numPoints = 1
+			end
+
+			-- local numPoints = math.max(1, math.round(distance / margin) - 1)
 			local segLength = distance / (numPoints + 1)
 			local normal = Vector.to(near1, near2):normalise()
 
@@ -215,7 +226,7 @@ function Level:_gencorridors( margin )
 				}
 
 				points[#points+1] = point
-			end			
+			end
 		end
 	end
 
@@ -263,7 +274,18 @@ function Level:_enclose( margin )
 		if cell then
 			cell[#cell+1] = point
 		else
-			grid.set(x, y, { point })
+			cell = { point, hulls = nil }
+			grid.set(x, y, cell)
+		end
+
+		if point.hull then
+			local hulls = cell.hulls
+
+			if hulls then
+				hulls[point.hull] = true
+			else
+				hulls = { [point.hull] = true }
+			end
 		end
 	end
 
@@ -334,16 +356,30 @@ function Level:_enclose( margin )
 				local candidate = { x = rx, y = ry, terrain = 'filler' }
 				local empty = {}
 				local accepted = true
+				local hulls = {}
 
 				for _, dir in ipairs(dirs) do
 					local dx, dy = x + dir[1], y + dir[2]
 					
 					if 1 <= dx and dx <= width and 1 <= dy and dy <= height then
-						for _, vertex in ipairs(grid.get(dx, dy) or empty) do
+						local cell = grid.get(dx, dy) or empty
+						for _, vertex in ipairs(cell) do
 							if Vector.toLength(vertex, candidate) < margin then
 								accepted = false
 								break
 							end
+						end
+						if cell.hulls then
+							for hull, _ in pairs(cell.hulls) do
+								hulls[hull] = true
+							end
+						end
+					end
+
+					for hull, _ in pairs(hulls) do
+						if convex.contains(hull, candidate) then
+							accepted = false
+							break
 						end
 					end
 
@@ -411,6 +447,7 @@ function Level:_genvoronoi()
 
 	-- From voronoi diagram create a cell connectivity graph.
 	local graph = Graph.new()
+	local walkable = Graph.new()
 	local cells = {}
 
 	-- First add the vertices and contruct the polygon for the vertices.
@@ -430,9 +467,12 @@ function Level:_genvoronoi()
 		vertex.poly = poly
 		vertex.hull = hull
 
-		if #poly >= 6 then
-			graph:addVertex(vertex)
-		end
+		assert(#poly > 6)
+
+		graph:addVertex(vertex)
+		if vertex.terrain == 'floor' then
+			walkable:addVertex(vertex)
+		end		
 	end
 
 	-- Now the connections.
@@ -447,10 +487,20 @@ function Level:_genvoronoi()
 			if not graph:isPeer(vertex1, vertex2) then
 				graph:addEdge({ length = neighbour.edgeLength }, vertex1, vertex2)
 			end
+
+			local walkable1 = vertex1.terrain == 'floor'
+			local walkable2 = vertex2.terrain == 'floor'
+
+			if walkable1 and walkable2 and not walkable:isPeer(vertex1, vertex2) then
+				walkable:addEdge({ length = neighbour.edgeLength }, vertex1, vertex2)
+			end
 		end
 	end
 
+	-- assert(walkable:isConnected())
+
 	self.graph = graph
+	self.walkable = walkable
 end
 
 return Level
