@@ -9,22 +9,20 @@
 --
 
 local newgrid = require 'src/newgrid'
+local Graph = require 'src/Graph'
 
 local roomgen = {
 	grid = nil,
 }
 
-local function vertex( x, y, terrain, fringe )
+local function vertex( x, y, terrain )
 	-- assert(terrain)
 	-- assert(fringe ~= nil or terrain == terrains.filler)
 
 	return {
 		x = x,
 		y = y,
-		terrain = terrain,
-		fringe = fringe,
-		room = nil, -- This is set in Level.lua.
-		poly = nil, -- This is set in Level.lua.
+		terrain = terrain or 'floor',
 	}
 end
 
@@ -154,7 +152,7 @@ function roomgen.browniangrid( bbox, margin, terrain, fringe )
 	return points
 end
 
-function roomgen.brownianhexgrid( bbox, margin, terrain, fringe )
+function roomgen._brownianhexgrid( bbox, margin, terrain, fringe )
 	local points = {}
 
 	local w = bbox:width()
@@ -228,6 +226,62 @@ function roomgen.brownianhexgrid( bbox, margin, terrain, fringe )
 	end
 
 	return points
+end
+
+function roomgen.brownianhexgrid( bbox, margin )
+	local points, graph = roomgen.hexgrid(bbox, margin)
+
+	local floors = {}
+	for _, point in ipairs(points) do
+		if point.terrain == 'floor' then
+			floors[point] = true
+		end
+	end
+
+	local numFloors = table.count(floors)
+	local point = table.random(floors)
+	local found = { [point] = true }
+	local count = 1
+	local max = numFloors * 0.75
+	local attempts = 0
+	local maxAttempts = 2 * numFloors
+
+	while count < max and attempts < maxAttempts do
+		local peer = table.random(graph.vertices[point])
+		attempts = attempts + 1
+
+		if peer.terrain == 'floor' then
+			if not found[peer] then
+				found[peer] = true
+				count = count + 1
+			end
+			point = peer
+		elseif math.random(1, 3) == 1 then
+			break
+		end
+	end
+
+	local newPoints = {}
+	local newGraph = Graph.new()
+
+	local walls = graph:multiSourceDistanceMap(found, 1)
+	for point, depth in pairs(walls) do
+		if depth == 1 then
+			point.terrain = 'wall'
+		end
+		newPoints[#newPoints+1] = point
+		newGraph:addVertex(point)
+	end
+
+	local newVertices = newGraph.vertices
+	for edge, endverts in pairs(graph.edges) do
+		local a, b = endverts[1], endverts[2]
+		if newVertices[a] and newVertices[b] then
+			newGraph:addEdge({}, a, b)
+		end
+	end
+
+	return newPoints, newGraph
 end
 
 function roomgen.cellulargrid( bbox, margin, terrain, fringe )
@@ -387,19 +441,71 @@ function roomgen.hexgrid( bbox, margin, terrain, fringe )
 	local xmin = bbox.xmin + (gapx * 0.5)
 	local yoffset = bbox.ymin + (gapy * 0.5)
 
+	local rows = {}
+	local graph = Graph.new()
+
 	for y = 0, numy-1 do
 		local even = (y % 2) == 0
 		local xoffset = xmin + (even and 0.5 or 0) * margin
+		local lastx = numx-(even and 2 or 1)
 
-		for x = 0, numx-(even and 2 or 1) do
-			local x = xoffset + (x * margin)
-			local y = yoffset + (y * ymargin)
+		local row = {}
 
-			result[#result+1] = vertex(x, y, terrain, fringe)
+		for x = 0, lastx do
+			local vx = xoffset + (x * margin)
+			local vy = yoffset + (y * ymargin)
+
+			local terrain = 'floor'
+			if y == 0 or y == numy-1 or x == 0 or x == lastx then
+				terrain = 'wall'
+			end
+
+			local v = vertex(vx, vy, terrain)
+			result[#result+1] = v
+			row[x+1] = v
+			graph:addVertex(v)
+		end
+
+		rows[y+1] = row
+	end
+
+	local yodd = {
+		{ 0, -1 },
+		{ 1, -1 },
+		{ -1, 0 },
+		{ 1, 0 },
+		{ 0, 1 },
+		{ 1, 1 },
+	}
+
+	local yeven = {
+		{ -1, -1 },
+		{ 0, -1 },
+		{ -1, 0 },
+		{ 1, 0 },
+		{ -1, 1 },
+		{ 0, 1 },
+	}
+
+	local empty = {}
+
+	for y, row in ipairs(rows) do
+		for x, v in ipairs(row) do
+			local lookup = (y % 2 == 0) and yeven or yodd
+
+			for _, dir in ipairs(lookup) do
+				local dx, dy = x+dir[1], y+dir[2]
+
+				local dv = (rows[dy] or empty)[dx]
+			
+				if dv and not graph:isPeer(v, dv) then
+					graph:addEdge({}, v, dv)
+				end
+			end
 		end
 	end
 
-	return result
+	return result, graph
 end
 
 function roomgen.randhexgrid( bbox, margin, terrain, fringe )

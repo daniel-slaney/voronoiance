@@ -18,6 +18,8 @@ local function newgrid( width, height, value )
 		height = height,
 		set = 
 			function ( x, y, value )
+				assert(1 <= x and x <= width)
+				assert(1 <= y and y <= height)
 				data[x][y] = value
 			end,
 		get =
