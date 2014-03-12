@@ -5,7 +5,8 @@
 local state = require 'src/state'
 require 'mode/ShadowMode'
 require 'mode/LevelMode'
-local schema, init = require 'src/mode' { 'LevelMode' }
+require 'mode/GameMode'
+local schema, init = require 'src/mode' { 'GameMode' }
 
 local function export()
 	return state.machine(schema, init)

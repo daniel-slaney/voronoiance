@@ -124,11 +124,11 @@ local function centroid( hull )
 end
 
 -- SAT based convex hull collision test.
-local function collides( hull1, hull2, offset1, offset2, scale )
-	scale = scale or 1.25
+local function collides( hull1, hull2, offset1, offset2, margin )
+	scale = scale or 0
 	local vnorm = Vector.normalise
 	local vadd = Vector.add
-	local vmulvn = Vector.mulvn
+	local vprogress = Vector.progress
 	local vsub = Vector.sub
 	local vdot = Vector.dot
 	local norm = Vector.new { x=0, y=0 }
@@ -149,7 +149,7 @@ local function collides( hull1, hull2, offset1, offset2, scale )
 
 		for k = 1, #hull1 do
 			vadd(disp, hull1[k], offset1)
-			vmulvn(disp, disp, scale)
+			vprogress(disp, margin)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -161,7 +161,7 @@ local function collides( hull1, hull2, offset1, offset2, scale )
 
 		for k = 1, #hull2 do
 			vadd(disp, hull2[k], offset2)
-			vmulvn(disp, disp, scale)
+			vprogress(disp, margin)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -188,7 +188,7 @@ local function collides( hull1, hull2, offset1, offset2, scale )
 
 		for k = 1, #hull2 do
 			vadd(disp, hull2[k], offset2)
-			vmulvn(disp, disp, scale)
+			vprogress(disp, margin)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -200,7 +200,7 @@ local function collides( hull1, hull2, offset1, offset2, scale )
 
 		for k = 1, #hull1 do
 			vadd(disp, hull1[k], offset1)
-			vmulvn(disp, disp, scale)
+			vprogress(disp, margin)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 

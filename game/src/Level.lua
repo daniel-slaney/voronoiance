@@ -10,27 +10,43 @@ local graphgen = require 'src/graphgen'
 local convex = require 'src/convex'
 local newgrid = require 'src/newgrid'
 local Voronoi = require 'src/Voronoi'
+local dirs = require 'src/dirs'
 
 local Level = {}
 Level.__index = Level
 
 function Level.new( numRooms, genfunc, extents, margin )
-	local result = {
-		rooms = {},
-		connections = nil,
-		corridors = {},
-		points = {},
-		borders = {},
-		fillers = {}
-	}
+	local start = love.timer.getTime()
+	local attempts = 0
 
-	setmetatable(result, Level)
+	local result
+	repeat
+		attempts = attempts + 1
+		result = {
+			rooms = {},
+			connections = nil,
+			corridors = {},
+			points = {},
+			borders = {},
+			fillers = {},
+			graph = nil,
+			walkable = nil,
+			dirmap = nil,
+		}
 
-	result:_genrooms(numRooms, genfunc, extents, margin)
-	result:_connectRooms()
-	result.corridors = result:_gencorridors(margin)
-	result:_enclose(margin)
-	result:_genvoronoi()
+		setmetatable(result, Level)
+
+		result:_genrooms(numRooms, genfunc, extents, margin)
+		result:_connectRooms()
+		result.corridors = result:_gencorridors(margin)
+		result:_enclose(margin)
+		result:_genvoronoi()
+		result:_gendirs()
+	until result.walkable:isConnected() and not result.dirsProblem
+
+	local finish = love.timer.getTime()
+
+	printf('level gen #attempts:%s %.2fs', attempts, finish - start)
 
 	return result
 end
@@ -110,7 +126,7 @@ function Level:_insertRoom( genfunc, extents, margin )
 			for i = 1, #rooms do
 				local other = rooms[i]
 
-				if convex.collides(room.hull, other.hull, centre, vzero) then
+				if convex.collides(room.hull, other.hull, centre, vzero, margin) then
 					collision = true
 					break
 				end
@@ -152,13 +168,15 @@ function Level:_genrooms( numRooms, genfunc, extents, margin )
 	local start = love.timer.getTime()
 
 	self.skele = nil
+	local count = 0
 	
 	while #self.rooms ~= numRooms do
 		self:_insertRoom(genfunc, extents, margin)
+		count = count + 1
 	end
 
 	local finish = love.timer.getTime()
-	printf('genrooms #:%d %ss', numRooms, finish-start)
+	printf('genrooms #:%d %.2f%%(%d/%d) %ss', numRooms, 100*(numRooms/count), numRooms, count, finish-start)
 end
 
 function Level:_connectRooms()
@@ -180,8 +198,6 @@ function Level:_connectRooms()
 	self.connections = connections
 end
 
--- TODO: this can generate points that are too close together so corridors end
---       up merging. Might need to use path finding code instead...
 function Level:_gencorridors( margin )
 	-- Now create corridor the points along the edges.
 	local points = {}
@@ -497,10 +513,85 @@ function Level:_genvoronoi()
 		end
 	end
 
-	-- assert(walkable:isConnected())
-
 	self.graph = graph
 	self.walkable = walkable
+end
+
+function Level:_gendirs()
+	local start = love.timer.getTime()
+	local walkable = self.walkable
+
+	local dirmap = {}
+
+	local vdot = Vector.dot
+	local vsub = Vector.sub
+	local vnorm = Vector.normalise
+	local disp = Vector.new { x=0, y=0 }
+
+	local limit = math.cos(math.rad(45))
+
+	for vertex, peers in pairs(walkable.vertices) do
+		-- create a list of all dir and peer combinations
+		local dirdots = {}
+		for dir, dirv in pairs(dirs) do
+			local dirdot = dirdots[dir]
+			for peer, edge in pairs(peers) do
+				vsub(disp, peer, vertex)
+				vnorm(disp)
+				local dot = vdot(disp, dirv)
+				if dot > limit then
+					dirdots[#dirdots+1] = {
+						dir = dir,
+						peer = peer,
+						dot = dot
+					}
+				end
+			end
+		end
+
+		-- The larger the dot value, the closer to the ideal direction. So by
+		-- sorting in this way we get the array in 'best to worst' order.
+		table.sort(dirdots,
+			function ( lhs, rhs )
+				return lhs.dot > rhs.dot
+			end)
+
+		-- { [dir] = peer }
+		local map = {}
+		local taken = {}
+		local valence = walkable.valences[vertex]
+		local count = 0
+		
+		-- Go from best to worse choices making sure:
+		-- - Each direction has one peer assigned.
+		-- - Each peer is assigned to one direction.
+		for _, dirdot in ipairs(dirdots) do
+			local dir = dirdot.dir
+			local peer = dirdot.peer
+			if not map[dir] and not taken[peer] then
+				map[dir] = peer
+				taken[peer] = dir
+				count = count + 1
+
+				if count == valence then
+					break
+				end
+			end
+		end
+
+		dirmap[vertex] = map
+
+		if count ~= valence then
+			vertex.problem = true
+			self.dirsProblem = true
+			printf('dir problem')
+		end
+	end
+
+	self.dirmap = dirmap
+
+	local finish = love.timer.getTime()
+	printf('_gendirs %.2fs', finish - start)
 end
 
 return Level

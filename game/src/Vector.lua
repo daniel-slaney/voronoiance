@@ -176,6 +176,16 @@ function Vector.advance( self, target, distance )
 	self.y = self.y - disp.y
 end
 
+local _offsetv = Vector.new { x=0, y=0 }
+function Vector.progress( self, distance )
+	local l = Vector.length(self)
+	_offsetv.x = (self.x / l) * distance
+	_offsetv.y = (self.y / l) * distance
+
+	self.x = self.x + _offsetv.x
+	self.y = self.y + _offsetv.y
+end
+
 function Vector.nearest( vectors1, vectors2 )
 	local mindist = math.huge
 	local near1, near2 = nil, nil

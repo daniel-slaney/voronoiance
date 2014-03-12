@@ -29,7 +29,7 @@ local function vertex( x, y, terrain )
 end
 
 function roomgen.grid( bbox, margin )
-	printf('roomgen.grid')
+	-- printf('roomgen.grid')
 	local points = {}
 
 	local w = bbox:width()
@@ -95,7 +95,7 @@ function roomgen.grid( bbox, margin )
 end
 
 function roomgen.hexgrid( bbox, margin, terrain, fringe )
-	printf('roomgen.hexgrid')
+	-- printf('roomgen.hexgrid')
 	local result = {}
 
 	local w = bbox:width()
@@ -180,7 +180,7 @@ end
 
 -- Based on the _enclose() function in Level.lua.
 function roomgen.enclose( aabb, margin, terrain, fringe )
-	printf('roomgen.enclose')
+	-- printf('roomgen.enclose')
 	local width = math.ceil(aabb:width() / margin)
 	local height = math.ceil(aabb:height() / margin)
 
@@ -319,7 +319,7 @@ local function brownian( genfunc )
 
 			local floors = {}
 			for _, point in ipairs(points) do
-				if point.terrain == 'floor' then
+				if point.terrain == 'floor' and next(graph.vertices[point]) ~= nil then
 					floors[point] = true
 				end
 			end
