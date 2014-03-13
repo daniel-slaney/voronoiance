@@ -488,7 +488,11 @@ function Level:_genvoronoi()
 		graph:addVertex(vertex)
 		if vertex.terrain == 'floor' then
 			walkable:addVertex(vertex)
-		end		
+		end
+
+		-- TODO: test!
+		local centroid = convex.centroid(hull)
+		vertex.x, vertex.y = centroid.x, centroid.y
 	end
 
 	-- Now the connections.

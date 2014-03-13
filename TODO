@@ -1,36 +1,7 @@
 TODO
 
-- Need actions
-  - spawn, move, attack, leap and so on.
-    - spawn: renderable, layer, position
-    - move: actor, position (assume the same layer, must be nearby)
-    - teleport actor, position (can be anywhere)
-  - Animation and gameState changing separate
-    - What about spawning mid animation, e.g. for slime
-      - Could force it to be at the end of an animation.
-      - Could display a temporary surrogate.
-  - Actions can 'block' or not.
-    - Blocking actions are animated on their own.
-    - Non-blocking actions can be run in parallel
-    - Should end up being the same as Shiren's system.
-- How to get inputs to the player?
-  - Need a specifc buffer or storage in GameState
-
-- How to support directional keys?
-  - For each direction assign the closest edge
-    - Can have the same edge for more than one dir
-  - For each edge assign closest direction
-    - Can have the same direction for multiple edges
-  - First assign edges closest to the direction
-    - For any remining edges see if another direction will work.
-
 - Some actors need specific values, e.g. slime needs a lifetime
-
-
-- Offset actor (for anims)
-- Colour cell (for slime)
-- Show symbol or image (for spear)
-
+  - Some form of components maybe...
 
 - Leapers
 - Slugs
