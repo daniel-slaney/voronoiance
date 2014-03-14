@@ -47,7 +47,11 @@ function GameState.new()
 		level = level,
 		locations = locations,
 		overlays = overlays,
-		queue = {}
+		queue = {},
+		player = nil,
+		playerAction = nil,
+		seen = {},
+		fovDepth = 7
 	}
 
 	setmetatable(result, GameState)
@@ -76,6 +80,12 @@ function GameState:spawn( layer, vertex, actor )
 		actor = actor,
 		cost = 0
 	}
+end
+
+function GameState:spawnPlayer( layer, vertex, actor )
+	assert(self.player == nil)
+	self.player = actor
+	self:spawn(layer, vertex, actor)
 end
 
 function GameState:actorLocation( actor )
@@ -107,6 +117,27 @@ end
 function GameState:neighbourhoodOf( actor, depth )
 	local loc = self.locations[actor]
 	return self.level.graph:distanceMap(loc.vertex, depth)
+end
+
+function GameState:fov()
+	local player = self.player
+	assert(player)
+	local source = self.locations[player].vertex
+	assert(source)
+
+	local function edgeFilter( edge, from, to )
+		local terrain = from.terrain
+		return terrain == 'floor'
+	end
+
+	local result = self.level.graph:edgeFilteredDistanceMap(source, self.fovDepth, edgeFilter)
+
+	local seen = self.seen
+	for vertex in pairs(result) do
+		seen[vertex] = true
+	end
+
+	return result
 end
 
 function GameState:nextAction()
@@ -176,6 +207,11 @@ function GameState:kill( actor )
 			table.remove(queue, i)
 			break
 		end
+	end
+
+	if actor == self.player then
+		self.player = nil
+		self.playerAction = nil
 	end
 
 	assert(not self:actorAt(loc.layer, loc.vertex))

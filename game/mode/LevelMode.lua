@@ -19,17 +19,17 @@ function LevelMode:gen()
 	-- local genfunc = roomgen.hexgrid
 	-- local genfunc = roomgen.enclose
 	local genfunc = roomgen.random
+	local margin = 50
 	local extents = {
 		width = {
-			min = 100,
-			max = 200,
+			min = margin * 5,
+			max = margin * 10,
 		},
 		height = {
-			min = 100,
-			max = 200,
+			min = margin * 5,
+			max = margin * 10,
 		},
 	}
-	local margin = 20
 	local numRooms = 10
 
 	self.level = Level.new(numRooms, genfunc, extents, margin)

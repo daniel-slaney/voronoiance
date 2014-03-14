@@ -223,7 +223,7 @@ function Graph:dmap( source, maxdepth )
 		end
 	end
 
-	return result
+	return result, depth
 end
 
 function Graph:isEmpty()
@@ -402,6 +402,7 @@ function Graph:vertexFilteredMultiSourceDistanceMap( sources, maxdepth, vertexFi
 end
 
 -- TODO: If we could avoid the allocations of all but the result that would be cool
+-- edgeFilter( edge, fromVertex, toVertex ) -> boolean
 function Graph:vertexAndEdgeFilteredDistanceMap( source, vertexFilter, edgeFilter )
 	maxdepth = maxdepth or math.huge
 
@@ -418,7 +419,7 @@ function Graph:vertexAndEdgeFilteredDistanceMap( source, vertexFilter, edgeFilte
 
 		for vertex, _ in pairs(frontier) do
 			for peer, edge in pairs(vertices[vertex]) do
-				if vertexFilter(peer) and edgeFilter(edge) then
+				if vertexFilter(peer) and edgeFilter(edge, vertex, peer) then
 					if not frontier[peer] and not result[peer] then
 						result[peer] = depth
 						newFrontier[peer] = true
@@ -463,6 +464,7 @@ function Graph:vertexFilteredDistanceMap( source, vertexFilter )
 end
 
 -- TODO: If we could avoid the allocations of all but the result that would be cool
+-- edgeFilter( edge, fromVertex, toVertex ) -> boolean
 function Graph:edgeFilteredDistanceMap( source, maxdepth, edgeFilter )
 	maxdepth = maxdepth or math.huge
 
@@ -479,7 +481,7 @@ function Graph:edgeFilteredDistanceMap( source, maxdepth, edgeFilter )
 
 		for vertex, _ in pairs(frontier) do
 			for peer, edge in pairs(vertices[vertex]) do
-				if edgeFilter(edge) then
+				if edgeFilter(edge, vertex, peer) then
 					if not frontier[peer] and not result[peer] then
 						result[peer] = depth
 						newFrontier[peer] = true
@@ -594,6 +596,23 @@ function Graph:allPairsShortestPaths()
 				result[i][j] = math.min(result[i][j], result[i][k] + result[k][j])
 			end
 		end
+	end
+
+	return result
+end
+
+-- As noted in the comment for allPairsShortestPaths a repeated breath first
+-- search is faster for sparse graphs (by about 2 orders of magnitude) so
+-- here's a special version for sparse graphs.
+function Graph:allPairsShortestPathsSparse()
+	local result = {}
+
+	local maxdepth = 0
+
+	for vertex in pairs(self.vertices) do
+		local distances, depth = self:dmap(vertex)
+		maxdepth = math.max(maxdepth, depth)
+		result[vertex] = distances
 	end
 
 	return result

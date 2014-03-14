@@ -32,6 +32,7 @@ function Level.new( numRooms, genfunc, extents, margin )
 			graph = nil,
 			walkable = nil,
 			dirmap = nil,
+			paths = nil,
 		}
 
 		setmetatable(result, Level)
@@ -44,7 +45,21 @@ function Level.new( numRooms, genfunc, extents, margin )
 		result:_gendirs()
 	until result.walkable:isConnected() and not result.dirsProblem
 
+	result:_genpaths()
+
 	local finish = love.timer.getTime()
+
+	local terrains = {}
+	for vertex in pairs(result.graph.vertices) do
+		terrains[vertex.terrain] = true
+	end
+
+	terrains = table.keys(terrains)
+	table.sort(terrains)
+
+	for i, v in ipairs(terrains) do
+		printf('terrain:%s', v)
+	end
 
 	printf('level gen #attempts:%s %.2fs', attempts, finish - start)
 
@@ -596,6 +611,15 @@ function Level:_gendirs()
 
 	local finish = love.timer.getTime()
 	printf('_gendirs %.2fs', finish - start)
+end
+
+function Level:_genpaths()
+	local start = love.timer.getTime()
+
+	self.paths = self.walkable:allPairsShortestPathsSparse()
+
+	local finish = love.timer.getTime()
+	printf('_genpaths %.3fs', finish-start)
 end
 
 return Level

@@ -2,7 +2,7 @@
 -- src/GameMode.lua
 --
 
-local schema, GameMode = require 'src/mode' { 'GameMode' }
+local schema, GameMode, EndGameMode = require 'src/mode' { 'GameMode', 'EndGameMode' }
 local Vector = require 'src/Vector'
 local AABB = require 'src/AABB'
 local roomgen = require 'src/roomgen'
@@ -39,22 +39,32 @@ function shadowf( align, x, y, ... )
 	love.graphics.print(text, tx, ty)
 end
 
-function GameMode:enter()
-	printf('GameMode:enter()')
+local SPLASH_DURATION = 4
+
+function GameMode:enter( reason )
+	printf('GameMode:enter(%s)', reason)
+
+	self.splash = (reason == 'start') and SPLASH_DURATION or 0
 
 	self:gen()
 end
 
 function GameMode:gen()
 	local gameState = GameState.new()
-	local player = Actor.new('@', 'player')
+	local function on_player_die( gameState, actor )
+		self:become(EndGameMode, 'died')
+	end
+	local player = Actor.new('@', 'player', on_player_die)
 	local start = gameState:randomWalkableVertex()
-	gameState:spawn(GameState.Layer.CRITTER, start, player)
+
+
+	gameState:spawnPlayer(GameState.Layer.CRITTER, start, player)
 
 	self.gameState = gameState
 	self.player = player
 	self.pending = nil
 	self:resetFX()
+	self.fastmode = false
 end
 
 function GameMode:addFX( fx )
@@ -95,6 +105,8 @@ function GameMode:resetFX()
 end
 
 function GameMode:update( dt )
+	self.splash = self.splash - dt
+
 	local start = love.timer.getTime()
 	if not self.pending then
 		local unsynced = {}
@@ -137,6 +149,8 @@ function GameMode:update( dt )
 		end
 	end
 
+	local actionDT = (self.fastmode) and math.huge or dt
+
 	local pending = self.pending
 	if pending then
 		local done = true
@@ -148,7 +162,7 @@ function GameMode:update( dt )
 
 			if running then
 				done = false
-				action.time = action.time + dt
+				action.time = action.time + actionDT
 			else
 				table.remove(unsynced, i)
 			end
@@ -165,7 +179,7 @@ function GameMode:update( dt )
 				self:addFX(fx)
 
 				if running then
-					synced.time = synced.time + dt
+					synced.time = synced.time + actionDT
 				else
 					self.pending = nil
 				end
@@ -173,18 +187,10 @@ function GameMode:update( dt )
 		end
 	end
 	local finish = love.timer.getTime()
-	printf('update %.2fs', finish-start)
+	-- printf('update %.2fs', finish-start)
 end
 
-local fovDepth = 7
-local draw = true
-
 function GameMode:draw()
-	if not draw then
-		shadowf('lt', 40, 20, '%shz', love.timer.getFPS())
-		return
-	end
-
 	love.graphics.push()
 
 	love.graphics.setLineStyle('rough')
@@ -212,7 +218,7 @@ function GameMode:draw()
 		love.graphics.translate(-vertex.x + sw * 0.5, -vertex.y + sh * 0.5)
 	end
 
-	local fov = self.gameState:neighbourhoodOf(self.player, fovDepth)
+	local fov = self.gameState:fov()
 
 	for _, point in ipairs(self.gameState.level.points) do
 		if fov[point] then
@@ -242,7 +248,7 @@ function GameMode:draw()
 	love.graphics.setColor(0, 255, 0, 255)
 	for edge, endverts in pairs(self.gameState.level.walkable.edges) do
 		local a, b = endverts[1], endverts[2]
-		if fov[a] and fov[b] then
+		if fov[a] or fov[b] then
 			love.graphics.line(a.x, a.y, b.x, b.y)
 		end
 	end
@@ -259,7 +265,16 @@ function GameMode:draw()
 
 	love.graphics.pop()
 
-	shadowf('lt', 40, 20, '%shz', love.timer.getFPS())
+	local fasttext = self.fastmode and '- fast' or ''
+	shadowf('lt', 60, 40, '%shz %s', love.timer.getFPS(), fasttext)
+
+	if self.splash > 0 then
+		local bias = self.splash / SPLASH_DURATION
+
+		local alpha = math.round(255 * math.sin(bias * math.pi))
+		love.graphics.setColor(255, 255, 255, alpha)
+		love.graphics.draw(gSplash)
+	end
 
 	self:resetFX()
 end
@@ -318,14 +333,16 @@ function GameMode:keypressed( key, is_repeat )
 	elseif key == '1' then
 		local layer = GameState.Layer.CRITTER
 		local target = self.gameState:randomWalkableVertex()
-		local actor = Actor.new('S', 'wander')
+		local actor = Actor.new('S', 'simple')
 		self.gameState:spawn(layer, target, actor)
 	elseif key == 'left' then
-		fovDepth = fovDepth - 1
+		self.gameState.fovDepth = self.gameState.fovDepth - 1
 	elseif key == 'right' then
-		fovDepth = fovDepth + 1
+		self.gameState.fovDepth = self.gameState.fovDepth + 1
 	elseif key == '0' then
 		draw = not draw
+	elseif key == 'f' then
+		self.fastmode = not self.fastmode
 	elseif not self.pending then
 		local dir = keytodir[key]
 		local gameState = self.gameState

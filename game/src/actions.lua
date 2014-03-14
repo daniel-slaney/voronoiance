@@ -174,4 +174,77 @@ function actions.melee( gameState, actor, targetVertex )
 	}
 end
 
+function actions.leap( gameState, actor, targetVertex )
+	local actorLoc = gameState:actorLocation(actor)
+	assert(actorLoc)
+	local target = gameState:actorAt(actorLoc.layer, targetVertex)
+
+	local duration = 0.5
+	local impact = duration * 0.25
+	local recover = impact + (duration - impact) * 0.25
+
+	assert(impact < recover)
+	assert(recover < duration)
+
+	local apex = gameState.margin * 0.5
+	local to = Vector.to(actorLoc.vertex, targetVertex)
+	local toLength = to:length()
+	local actorOffset = Vector.new { x=0, y=0 }
+	local targetOffset = Vector.new { x=0, y=0 }
+	local vzero = Vector.new { x=0, y=0 }
+	local vmulvn = Vector.mulvn
+
+	local function plan( time )
+		if time >= duration then
+			if target then
+				gameState:kill(target)
+			end
+
+			return false
+		end
+
+		actorOffset:set(vzero)
+		targetOffset:set(vzero)
+
+		if time <= impact then
+			local bias = time / impact
+			local y = apex * parabola(bias)
+			vmulvn(actorOffset, to, bias * 0.75)
+			actorOffset.y = actorOffset.y - y
+		else
+			actorOffset:set(to)
+		end
+
+		if impact <= time then
+			if time <= recover then
+				local bias = (time - impact) / (recover - impact)
+				bias = math.sqrt(bias)
+				vmulvn(targetOffset, to, bias * 0.2)
+			else
+				local bias = 1 - ((time - recover) / (duration - recover))
+				bias = bias * bias
+				vmulvn(targetOffset, to, bias * 0.2)
+			end
+		end
+
+		return true, {
+			{
+				fx = 'actor.offset',
+				actor = actor,
+				offset = actorOffset,
+			},
+			{
+				fx = 'actor.offset',
+				actor = target,
+				offset = targetOffset,
+			},
+		}
+	end
+
+	return {
+		sync = true,
+		plan = plan
+	}
+end
+
 return actions

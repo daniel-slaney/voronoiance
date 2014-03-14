@@ -13,9 +13,10 @@ local machine
 function love.load()
 	gFont30 = love.graphics.newFont('resource/inconsolata.otf', 30)
 	gFont15 = love.graphics.newFont('resource/inconsolata.otf', 15)
+	gSplash = love.graphics.newImage('resource/splash.png')
 	love.graphics.setFont(gFont30)
 
-	machine = genMachine()
+	machine = genMachine('start')
 end
 
 function love.update( dt )
