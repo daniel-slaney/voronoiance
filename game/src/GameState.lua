@@ -20,19 +20,21 @@ local Layer = GameState.Layer
 function GameState.new()
 	local genfunc = roomgen.random
 	local margin = 40
+	local min = margin * 7
+	local max = margin * 10
 	local extents = {
 		width = {
-			min = margin * 5,
-			max = margin * 10,
+			min = min,
+			max = max,
 		},
 		height = {
-			min = margin * 5,
-			max = margin * 10,
+			min = min,
+			max = max,
 		},
 	}
-	local numRooms = 10
+	local numRooms = 7
 
-	local level = Level.new(numRooms, genfunc, extents, margin)
+	local level = Level.new(numRooms, genfunc, extents, margin, true)
 	
 	-- { [actor] = { layer=Layer, vertex=vertex } }*
 	local locations = {}
@@ -51,7 +53,8 @@ function GameState.new()
 		player = nil,
 		playerAction = nil,
 		seen = {},
-		fovDepth = 7
+		fovDepth = 7,
+		turns = 0,
 	}
 
 	setmetatable(result, GameState)
@@ -96,27 +99,30 @@ function GameState:actorAt( layer, vertex )
 	return self.overlays[layer][vertex]
 end
 
-function GameState:peersOf( actor )
-	local location = self.locations[actor]
-	assert(location)
-	local overlay = self.overlays[location.layer]
+-- Returns a map { [vertex] = distance } of the walkable graph centred on the
+-- supplied actor. Cells occupied by actors in the same layer as the supplied
+-- actor.
+--
+-- If depth is not supplied it assume infinite depth.
+function GameState:occludedDijkstraMap( actor, depth )
+	depth = depth or math.huge
+	local loc = self.locations[actor]
+	local overlay = self.overlays[loc.layer]
 
-	local peers = self.level.walkable.vertices[location.vertex]
-
-	local result = {}
-
-	for vertex, edge in pairs(peers) do
-		if not overlay[vertex] then
-			result[vertex] = true
-		end
+	local function vertexFilter( vertex )
+		return overlay[vertex] == nil
 	end
 
-	return result
+	return self.level.walkable:vertexFilteredDistanceMap(loc.vertex, depth, vertexFilter)
 end
 
-function GameState:neighbourhoodOf( actor, depth )
+-- As above but doesn't discount vertices occupied by actors in the same layer.
+function GameState:dijkstraMap( actor, depth )
+	depth = depth or math.huge
 	local loc = self.locations[actor]
-	return self.level.graph:distanceMap(loc.vertex, depth)
+	local overlay = self.overlays[loc.layer]
+
+	return self.level.walkable:dmap(loc.vertex, depth)
 end
 
 function GameState:fov()
@@ -125,6 +131,7 @@ function GameState:fov()
 	local source = self.locations[player].vertex
 	assert(source)
 
+	-- We want to see the walls but not beyond them.
 	local function edgeFilter( edge, from, to )
 		local terrain = from.terrain
 		return terrain == 'floor'
@@ -147,6 +154,7 @@ function GameState:nextAction()
 		return nil
 	end
 
+	-- TODO: Would be more efficient to use a priority queue.
 	table.sort(queue,
 		function ( lhs, rhs )
 			if lhs.cost ~= rhs.cost then
@@ -161,26 +169,29 @@ function GameState:nextAction()
 
 	-- Skip forward in time if we have to...
 	if surplus > 0 then
+		self.turns = self.turns + surplus
 		for _, item in ipairs(queue) do
 			item.cost = item.cost - surplus
 		end
 	end
 
-	local cost, actor = queue[1].cost, queue[1].actor
+	local top = queue[1]
+	local cost, actor = top.cost, top.actor
 	local newcost, action = actor.behaviour(self, actor)
 	-- only costless calls can have nil actions
 	assert(cost == 0 or action ~= nil)
-	queue[1].cost = newcost
+	top.cost = newcost
 
 	return action
 end
 
--- The target vertex must be unoccupied.
+-- The target vertex must be unoccupied and be a floor.
 function GameState:move( actor, targetVertex )
 	local location = self.locations[actor]
 	assert(location)
 	assert(self.level.walkable.vertices[targetVertex])
 	assert(not self:actorAt(location.layer, targetVertex))
+	assert(targetVertex.terrain == 'floor')
 	
 	local overlay = self.overlays[location.layer]
 	overlay[location.vertex] = nil

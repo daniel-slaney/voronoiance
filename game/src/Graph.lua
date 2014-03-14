@@ -194,6 +194,7 @@ end
 -- is reused between runs.
 function Graph:dmap( source, maxdepth )
 	maxdepth = maxdepth or math.huge
+	assert(maxdepth > 0)
 
 	local vertices = self.vertices
 	assert(vertices[source])
@@ -223,7 +224,7 @@ function Graph:dmap( source, maxdepth )
 		end
 	end
 
-	return result, depth
+	return result, depth-1
 end
 
 function Graph:isEmpty()
@@ -434,33 +435,69 @@ function Graph:vertexAndEdgeFilteredDistanceMap( source, vertexFilter, edgeFilte
 	return result
 end
 
--- TODO: If we could avoid the allocations of all but the result that would be cool
-function Graph:vertexFilteredDistanceMap( source, vertexFilter )
+-- -- TODO: If we could avoid the allocations of all but the result that would be cool
+-- -- The vertex filter IS NOT appplied to the source vertex.
+-- function Graph:vertexFilteredDistanceMap( source, maxdepth, vertexFilter )
+-- 	local vertices = self.vertices
+-- 	assert(vertices[source])
+
+-- 	local result = { [source] = 0 }
+-- 	local frontier = { [source] = true }
+-- 	local found = false
+
+-- 	while not found and next(frontier) do
+-- 		local newFrontier = {}
+
+-- 		for vertex, _ in pairs(frontier) do
+-- 			for peer, edge in pairs(vertices[vertex]) do
+-- 				if vertexFilter(peer) then
+-- 					if not frontier[peer] and not result[peer] then
+-- 						result[peer] = true
+-- 						newFrontier[peer] = true
+-- 					end
+-- 				end
+-- 			end
+-- 		end
+
+-- 		frontier = newFrontier
+-- 	end
+
+-- 	return result
+-- end
+
+-- The vertex filter IS NOT appplied to the source vertex.
+function Graph:vertexFilteredDistanceMap( source, maxdepth, vertexFilter )
+	maxdepth = maxdepth or math.huge
+
 	local vertices = self.vertices
 	assert(vertices[source])
 
 	local result = { [source] = 0 }
-	local frontier = { [source] = true }
-	local found = false
+	local queue = { source }
 
-	while not found and next(frontier) do
-		local newFrontier = {}
+	local index = 1
+	local depth = 0
 
-		for vertex, _ in pairs(frontier) do
-			for peer, edge in pairs(vertices[vertex]) do
-				if vertexFilter(peer) then
-					if not frontier[peer] and not result[peer] then
-						result[peer] = true
-						newFrontier[peer] = true
-					end
+	while index <= #queue and depth < maxdepth do
+		depth = depth + 1
+
+		local frontier = #queue
+
+		while index <= frontier do
+			local vertex = queue[index]
+
+			for peer, _ in pairs(vertices[vertex]) do
+				if not result[peer] and vertexFilter(peer) then
+					result[peer] = depth
+					queue[#queue+1] = peer
 				end
 			end
-		end
 
-		frontier = newFrontier
+			index = index + 1
+		end
 	end
 
-	return result
+	return result, depth
 end
 
 -- TODO: If we could avoid the allocations of all but the result that would be cool
@@ -615,7 +652,7 @@ function Graph:allPairsShortestPathsSparse()
 		result[vertex] = distances
 	end
 
-	return result
+	return result, maxdepth
 end
 
 -- TODO: Brandes algorithm would probably be better.

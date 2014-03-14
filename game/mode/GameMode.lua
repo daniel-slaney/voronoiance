@@ -55,8 +55,7 @@ function GameMode:gen()
 		self:become(EndGameMode, 'died')
 	end
 	local player = Actor.new('@', 'player', on_player_die)
-	local start = gameState:randomWalkableVertex()
-
+	local start = gameState.level.entry
 
 	gameState:spawnPlayer(GameState.Layer.CRITTER, start, player)
 
@@ -223,7 +222,11 @@ function GameMode:draw()
 	for _, point in ipairs(self.gameState.level.points) do
 		if fov[point] then
 			if point.terrain == 'floor' then
-				love.graphics.setColor(184, 118, 61, 255)
+				if point.entry or point.exit then
+					love.graphics.setColor(255, 0, 255, 255)
+				else
+					love.graphics.setColor(184, 118, 61, 255)
+				end
 			else
 				love.graphics.setColor(64, 64, 64, 255)
 			end
@@ -266,7 +269,7 @@ function GameMode:draw()
 	love.graphics.pop()
 
 	local fasttext = self.fastmode and '- fast' or ''
-	shadowf('lt', 60, 40, '%shz %s', love.timer.getFPS(), fasttext)
+	shadowf('lt', 60, 40, '%shz t:%d %s', love.timer.getFPS(), self.gameState.turns, fasttext)
 
 	if self.splash > 0 then
 		local bias = self.splash / SPLASH_DURATION
@@ -325,9 +328,11 @@ function GameMode:keypressed( key, is_repeat )
 		printf('seed:%s', seed)
 		math.randomseed(seed)
 	elseif key == 'm' then
-		local peers = self.gameState:peersOf(self.player)
-		local targetVertex = table.random(peers)
-		self.gameState:move(self.player, targetVertex)
+		local dof = self.gameState:occludedDijkstraMap(self.player, 1)
+		if next(dof) then
+			local targetVertex = table.random(dof)
+			self.gameState:move(self.player, targetVertex)
+		end
 	elseif key == 'z' then
 		self.overview = not self.overview
 	elseif key == '1' then

@@ -8,6 +8,7 @@ require 'mode/LevelMode'
 require 'mode/GameMode'
 require 'mode/EndGameMode'
 local schema, init = require 'src/mode' { 'GameMode' }
+-- local schema, init = require 'src/mode' { 'LevelMode' }
 
 local function export( ... )
 	return state.machine(schema, init, ...)

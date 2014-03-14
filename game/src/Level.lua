@@ -15,7 +15,7 @@ local dirs = require 'src/dirs'
 local Level = {}
 Level.__index = Level
 
-function Level.new( numRooms, genfunc, extents, margin )
+function Level.new( numRooms, genfunc, extents, margin, check )
 	local start = love.timer.getTime()
 	local attempts = 0
 
@@ -33,6 +33,9 @@ function Level.new( numRooms, genfunc, extents, margin )
 			walkable = nil,
 			dirmap = nil,
 			paths = nil,
+			longestPath = math.huge,
+			entry = nil,
+			exit = nil,
 		}
 
 		setmetatable(result, Level)
@@ -43,9 +46,16 @@ function Level.new( numRooms, genfunc, extents, margin )
 		result:_enclose(margin)
 		result:_genvoronoi()
 		result:_gendirs()
-	until result.walkable:isConnected() and not result.dirsProblem
+		local connected = result.walkable:isConnected()
+		local dirsOK = not result.dirsProblem
+		printf('connected:%s dirs ok:%s', connected, dirsOK)
+		if not check then
+			break
+		end
+	until connected and dirsOK
 
 	result:_genpaths()
+	result:_genentry()
 
 	local finish = love.timer.getTime()
 
@@ -80,7 +90,7 @@ function Level:_roomgen( genfunc, extents, margin )
 		ymax = hh,
 	}
 
-	local points, graph = genfunc(aabb, margin)
+	local points, graph, overlay = genfunc(aabb, margin)
 
 	--  Need three or more points to be able to create a convex hull.
 	if #points >= 3 then
@@ -104,6 +114,7 @@ function Level:_roomgen( genfunc, extents, margin )
 			hull = hull,
 			aabb = aabb,
 			graph = graph,
+			overlay = overlay
 		}
 	end
 
@@ -227,6 +238,9 @@ function Level:_gencorridors( margin )
 		if near1 and near2 then
 			near1.terrain = 'floor'
 			near2.terrain = 'floor'
+			near1.corridor = true
+			near2.corridor = true
+
 			-- We already have the end points of the corridor so we only create
 			-- the internal points.
 			-- TODO: if numPoints < 1 then something has gone wrong, maybe
@@ -253,7 +267,8 @@ function Level:_gencorridors( margin )
 				local point = {
 					x = near1.x + (i * segLength * normal.x),
 					y = near1.y + (i * segLength * normal.y),
-					terrain = 'floor'
+					terrain = 'floor',
+					corridor = true
 				}
 
 				points[#points+1] = point
@@ -449,6 +464,8 @@ function Level:_enclose( margin )
 end
 
 function Level:_genvoronoi()
+	local start = love.timer.getTime()
+
 	-- Build voronoi diagram.
 	local points = self.points
 	local sites = {}
@@ -498,14 +515,16 @@ function Level:_genvoronoi()
 		vertex.poly = poly
 		vertex.hull = hull
 
-		assert(#poly > 6)
+		assertf(#poly >= 6, 'only %d points in hull', #hull)
 
 		graph:addVertex(vertex)
 		if vertex.terrain == 'floor' then
 			walkable:addVertex(vertex)
 		end
 
-		-- TODO: test!
+		-- This moves the centre of the cells to the centroid of their hull.
+		-- It looks a lot better and feels more natural.
+		-- NOTE: it means the hulls will look a bit wrong now.
 		local centroid = convex.centroid(hull)
 		vertex.x, vertex.y = centroid.x, centroid.y
 	end
@@ -532,8 +551,34 @@ function Level:_genvoronoi()
 		end
 	end
 
+	-- Now add any missing overlay edges (should only be diagonals on grid
+	-- based rooms).
+	for _, room in ipairs(self.rooms) do
+		local overlay = room.overlay
+		if overlay then
+			for edge, endverts in pairs(overlay.edges) do
+				local a, b = endverts[1], endverts[2]
+				local walkable1 = a.terrain == 'floor'
+				local walkable2 = b.terrain == 'floor'
+				assert(walkable1)
+				assert(walkable2)
+
+				if not graph:isPeer(a, b) then
+					graph:addEdge({}, a, b)
+				end				
+
+				if not walkable:isPeer(a, b) then
+					walkable:addEdge({}, a, b)
+				end
+			end
+		end
+	end
+
 	self.graph = graph
 	self.walkable = walkable
+
+	local finish = love.timer.getTime()
+	printf('_genvoronoi %.3fs', finish-start)
 end
 
 function Level:_gendirs()
@@ -610,16 +655,84 @@ function Level:_gendirs()
 	self.dirmap = dirmap
 
 	local finish = love.timer.getTime()
-	printf('_gendirs %.2fs', finish - start)
+	printf('_gendirs %.3fs', finish - start)
 end
 
 function Level:_genpaths()
 	local start = love.timer.getTime()
 
-	self.paths = self.walkable:allPairsShortestPathsSparse()
+	self.paths, self.longestPath = self.walkable:allPairsShortestPathsSparse()
 
 	local finish = love.timer.getTime()
 	printf('_genpaths %.3fs', finish-start)
+end
+
+function Level:_genentry()
+	local start = love.timer.getTime()
+
+	local nextId = 1
+	local vid = {}
+
+	for vertex in pairs(self.walkable.vertices) do
+		vid[vertex] = nextId
+		nextId = nextId + 1
+	end
+
+	local histogram = {}
+	for i = 1, self.longestPath do
+		histogram[i] = {}
+	end
+
+	local paths = self.paths
+	local total = 0
+	for v1, v2s in pairs(paths) do
+		for v2, distance in pairs(v2s) do
+			-- This means we get no duplicates and no 0-length paths.
+			if vid[v1] < vid[v2] and not v1.corridor and not v2.corridor then
+				local block = histogram[distance]
+				block[#block+1] = { v1, v2 }
+				total = total + 1
+			end
+		end
+	end
+
+	-- printf('#vertices:%d', nextId-1)
+	-- for distance, block in ipairs(histogram) do
+	-- 	printf('|%d| #%d', distance, #block)
+	-- end
+
+	-- We want a long path between the entry and exit. So we pick the path that
+	-- is nearest to 75% of paths.
+	local choiceIndex = math.round(total * 0.75)
+
+	local count = 0
+	local entry, exit = nil, nil
+	for _, block in ipairs(histogram) do
+		local limit = count + #block
+		if limit < choiceIndex then
+			count = limit
+		else
+			local relIndex = choiceIndex - count
+			local pair = block[relIndex]
+			assert(pair)
+			entry = pair[1]
+			exit = pair[2]
+			break
+		end
+	end
+
+	assert(entry)
+	assert(exit)
+
+	self.entry = entry
+	entry.entry = true
+	self.exit = exit
+	exit.exit = true
+
+	local distance = paths[entry][exit]
+
+	local finish = love.timer.getTime()
+	printf('_genentry d:%d/%d %.3fs', distance, self.longestPath, finish-start)
 end
 
 return Level

@@ -40,41 +40,48 @@ function roomgen.grid( bbox, margin )
 	numx, numy = numx + 1, numy + 1
 	gapx, gapy = gapx * margin, gapy * margin
 
+	assert(numx >= 3)
+	assert(numy >= 3)
+
 	local xoffset = bbox.xmin + (gapx * 0.5)
 	local yoffset = bbox.ymin + (gapy * 0.5)
 
 	local columns = {}
 	local graph = Graph.new()
+	-- The corners causes issues for corridor generation so don't create them.
+	local forbidden = {
+		[0] = { [0] = true, [numy-1] = true },
+		[numx-1] = { [0] = true, [numy-1] = true },
+	}	
 
+	local empty = {}
 	for x = 0, numx-1 do
 		local column = {}
 		for y = 0, numy-1 do
-			local vx = xoffset + (x * margin)
-			local vy = yoffset + (y * margin)
+			if not (forbidden[x] or empty)[y] then
+				local vx = xoffset + (x * margin)
+				local vy = yoffset + (y * margin)
 
-			local terrain = 'floor'
+				local terrain = 'floor'
 
-			if x == 0 or x == numx-1 or y == 0 or y == numy-1 then
-				terrain = 'wall'
+				if x == 0 or x == numx-1 or y == 0 or y == numy-1 then
+					terrain = 'wall'
+				end
+
+				local v = vertex(vx, vy, terrain)
+				points[#points+1] = v
+				column[y+1] = v
+				graph:addVertex(v)
 			end
-
-			local v = vertex(vx, vy, terrain)
-			points[#points+1] = v
-			column[y+1] = v
-			graph:addVertex(v)
 		end
 		columns[x+1] = column
 	end
 
 	local dirs = {
-		{  0, -1 },
-		{ -1, 0 },
+		-- {  0, -1 },
+		-- { -1, 0 },
 		{  1, 0 },
 		{  0, 1 },
-		-- { -1, -1 },
-		-- {  1, 1 },
-		-- { -1, 1 },
-		-- {  1, -1 },
 	}
 
 	local empty = {}
@@ -91,7 +98,71 @@ function roomgen.grid( bbox, margin )
 		end
 	end
 
-	return points, graph
+	local ur = {
+		{ 0, 0 },
+		{ 0, 1 },
+		{ 1, 0 },
+		{ 1, 1 }
+	}
+
+	local ul = {
+		{ 0, 0 },
+		{ 0, 1 },
+		{ -1, 0 },
+		{ -1, 1 }
+	}
+
+	local dirs = {
+		{  1, 1, contingent = ur },
+		{ -1, 1, contingent = ul },
+	}
+
+	local overlay = Graph.new()
+	for x, column in ipairs(columns) do
+		for y, v in ipairs(column) do
+			if v.terrain == 'floor' then
+				overlay:addVertex(v)
+			end
+		end
+	end
+
+	local vertices = overlay.vertices
+	for x, column in ipairs(columns) do
+		for y, v in ipairs(column) do
+			if vertices[v] then
+				for _, dir in ipairs(dirs) do
+					local dx, dy = x+dir[1], y+dir[2]
+					local dv = (columns[dx] or empty)[dy]
+
+					if dv then
+						local dependencies = {}
+						local valid = true
+						for _, cdir in ipairs(dir.contingent) do
+							local cx, cy = x+cdir[1], y+cdir[2]
+							local cv = (columns[cx] or empty)[cy]
+
+							if cv and cv.terrain == 'floor' then
+								dependencies[cv] = true
+							else
+								valid = false
+								break
+							end
+						end
+
+						if valid then
+							if not overlay:isPeer(v, dv) then
+								assert(v.terrain == 'floor')
+								assert(dv.terrain == 'floor')
+								overlay:addEdge({ dependencies = dependencies }, v, dv)
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return points, graph, overlay
 end
 
 function roomgen.hexgrid( bbox, margin, terrain, fringe )
@@ -175,7 +246,7 @@ function roomgen.hexgrid( bbox, margin, terrain, fringe )
 		end
 	end
 
-	return result, graph
+	return result, graph, nil
 end
 
 -- Based on the _enclose() function in Level.lua.
@@ -308,14 +379,14 @@ function roomgen.enclose( aabb, margin, terrain, fringe )
 		end
 	end
 
-	return points, graph
+	return points, graph, nil
 end
 
 
 local function brownian( genfunc )
 	return
 		function ( bbox, margin )
-			local points, graph = genfunc(bbox, margin)
+			local points, graph, overlay = genfunc(bbox, margin)
 
 			local floors = {}
 			for _, point in ipairs(points) do
@@ -335,6 +406,7 @@ local function brownian( genfunc )
 
 			while count < max and attempts < maxAttempts do
 				local peer = table.random(graph.vertices[point])
+
 				attempts = attempts + 1
 
 				if peer.terrain == 'floor' then
@@ -352,6 +424,7 @@ local function brownian( genfunc )
 
 			local newPoints = {}
 			local newGraph = Graph.new()
+			local newOverlay = Graph.new()
 
 			local walls = graph:multiSourceDistanceMap(found, 1)
 			for point, depth in pairs(walls) do
@@ -360,6 +433,9 @@ local function brownian( genfunc )
 				end
 				newPoints[#newPoints+1] = point
 				newGraph:addVertex(point)
+				if depth == 0 then
+					newOverlay:addVertex(point)
+				end
 			end
 
 			local newVertices = newGraph.vertices
@@ -370,7 +446,30 @@ local function brownian( genfunc )
 				end
 			end
 
-			return newPoints, newGraph
+			if overlay then
+				local selected = newOverlay.vertices
+				for edge, endverts in pairs(overlay.edges) do
+					local a, b = endverts[1], endverts[2]
+
+					if selected[a] and selected[b] then
+						local dependencies = edge.dependencies
+
+						local valid = true
+						for point in pairs(dependencies) do
+							if not selected[point] then
+								valid = false
+								break
+							end
+						end
+
+						if valid then
+							newOverlay:addEdge({}, a, b)
+						end
+					end
+				end
+			end
+
+			return newPoints, newGraph, newOverlay
 		end
 end
 

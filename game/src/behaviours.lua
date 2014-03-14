@@ -22,10 +22,10 @@ function behaviours.player( gameState, actor )
 end
 
 local function _wander( gameState, actor )
-	local peers = gameState:peersOf(actor)
+	local dof = gameState:occludedDijkstraMap(actor, 1)
 
-	if next(peers) then
-		local target = table.random(peers)
+	if next(dof) then
+		local target = table.random(dof)
 		coroutine.yield(3, actions.move(gameState, actor, target))
 	else
 		coroutine.yield(3, actions.search(gameState, actor))
@@ -58,25 +58,25 @@ function behaviours.simple( gameState, actor )
 			_wander(gameState, actor)
 		else
 			local playerVertex = gameState:actorLocation(player).vertex
-			local djkstra = gameState:neighbourhoodOf(player)
+			local dijkstra = gameState:dijkstraMap(player)
+			for k, v in pairs(dijkstra) do printf('%s -> %s', k, v) end
 			local source = gameState:actorLocation(actor).vertex
 
-			if djkstra[source] == 1 then
+			if dijkstra[source] == 1 then
 				coroutine.yield(3, actions.melee(gameState, actor, playerVertex))
 			else
-				local peers = gameState:peersOf(actor)
-
-				if next(peers) == nil then
+				local dof = gameState:occludedDijkstraMap(actor, 1)
+				if next(dof) == nil then
 					coroutine.yield(3, actions.search(gameState, actor))
 				else
 					local mindepth = math.huge
-					for vertex in pairs(peers) do
-						mindepth = math.min(mindepth, djkstra[vertex])
+					for vertex in pairs(dof) do
+						mindepth = math.min(mindepth, dijkstra[vertex])
 					end
 					
 					local candidates = {}
-					for vertex in pairs(peers) do
-						if djkstra[vertex] == mindepth then
+					for vertex in pairs(dof) do
+						if dijkstra[vertex] == mindepth then
 							candidates[#candidates+1] = vertex
 						end
 					end
