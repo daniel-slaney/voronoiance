@@ -4,10 +4,6 @@ TODO
   - Some form of components maybe...
   - Sod it, just fill actor with crap because time constraints!
 
-- fast mode (instant anims)
-  - for Darren Grey...
-
-- need to create entry/exits
 - need to spawn monsters
 
 - Leapers
@@ -65,6 +61,6 @@ TODO
 
 - Help screen text
 - End game screen
-  - 
+  - Maybe some stats...
 - Splash screen
   - Display over the game and fade out for the first few seconds.

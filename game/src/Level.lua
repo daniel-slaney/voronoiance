@@ -59,16 +59,11 @@ function Level.new( numRooms, genfunc, extents, margin, check )
 
 	local finish = love.timer.getTime()
 
-	local terrains = {}
+	-- no longer need 'wall', 'filler' and 'border' just set them all to 'wall'
 	for vertex in pairs(result.graph.vertices) do
-		terrains[vertex.terrain] = true
-	end
-
-	terrains = table.keys(terrains)
-	table.sort(terrains)
-
-	for i, v in ipairs(terrains) do
-		printf('terrain:%s', v)
+		if vertex.terrain ~= 'floor' then
+			vertex.terrain = 'wall'
+		end
 	end
 
 	printf('level gen #attempts:%s %.2fs', attempts, finish - start)
@@ -249,7 +244,7 @@ function Level:_gencorridors( margin )
 			
 			local numPoints = math.round(distance / margin) - 1
 
-			if distance > margin and numPoints == 0 then
+			if distance > margin * 0.75 and numPoints == 0 then
 				numPoints = 1
 			end
 
@@ -701,9 +696,8 @@ function Level:_genentry()
 	-- 	printf('|%d| #%d', distance, #block)
 	-- end
 
-	-- We want a long path between the entry and exit. So we pick the path that
-	-- is nearest to 75% of paths.
-	local choiceIndex = math.round(total * 0.75)
+	-- We want a long path between the entry and exit.
+	local choiceIndex = math.round(total * 0.95)
 
 	local count = 0
 	local entry, exit = nil, nil

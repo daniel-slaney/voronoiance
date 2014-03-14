@@ -39,12 +39,8 @@ function shadowf( align, x, y, ... )
 	love.graphics.print(text, tx, ty)
 end
 
-local SPLASH_DURATION = 4
-
 function GameMode:enter( reason )
 	printf('GameMode:enter(%s)', reason)
-
-	self.splash = (reason == 'start') and SPLASH_DURATION or 0
 
 	self:gen()
 end
@@ -104,8 +100,6 @@ function GameMode:resetFX()
 end
 
 function GameMode:update( dt )
-	self.splash = self.splash - dt
-
 	local start = love.timer.getTime()
 	if not self.pending then
 		local unsynced = {}
@@ -271,14 +265,6 @@ function GameMode:draw()
 	local fasttext = self.fastmode and '- fast' or ''
 	shadowf('lt', 60, 40, '%shz t:%d %s', love.timer.getFPS(), self.gameState.turns, fasttext)
 
-	if self.splash > 0 then
-		local bias = self.splash / SPLASH_DURATION
-
-		local alpha = math.round(255 * math.sin(bias * math.pi))
-		love.graphics.setColor(255, 255, 255, alpha)
-		love.graphics.draw(gSplash)
-	end
-
 	self:resetFX()
 end
 
@@ -319,6 +305,17 @@ local keytodir = {
 	kp3 = 'SE',
 }
 
+local nearby = {
+	N = { 'NE', 'NW' },
+	NE = { 'N', 'E' },
+	E = { 'NE', 'SE' },
+	SE = { 'E', 'S' },
+	S = { 'SE', 'SW' },
+	SW = { 'S', 'W' },
+	W = { 'SW', 'NW' },
+	NW = { 'W', 'N' },
+}
+
 local delta = 100
 function GameMode:keypressed( key, is_repeat )
 	if key == ' ' then
@@ -354,7 +351,24 @@ function GameMode:keypressed( key, is_repeat )
 
 		if dir then
 			local loc = gameState:actorLocation(self.player)
-			local target = gameState.level.dirmap[loc.vertex][dir]
+			local dirmap = gameState.level.dirmap[loc.vertex]
+			local target = dirmap[dir]
+
+			-- TODO: if there's no target try a nearby direction.
+			--       - If only one of them is valid move that way
+
+			if not target then
+				local dirA = nearby[dir][1]
+				local dirB = nearby[dir][2]
+				local targetA = dirmap[dirA]
+				local targetB = dirmap[dirB]
+
+				if targetA and not targetB then
+					target = targetA
+				elseif not targetA and targetB then
+					target = targetB
+				end
+			end
 
 			if target then
 				local targetActor = gameState:actorAt(GameState.Layer.CRITTER, target)
@@ -362,12 +376,12 @@ function GameMode:keypressed( key, is_repeat )
 				if not targetActor then
 					-- self.gameState:move(self.player, target)
 					gameState.playerAction = {
-						cost = 3,
+						cost = 2,
 						action = actions.move(gameState, self.player, target)
 					}
 				else
 					gameState.playerAction = {
-						cost = 3,
+						cost = 2,
 						action = actions.melee(gameState, self.player, target)
 					}
 				end
@@ -376,7 +390,7 @@ function GameMode:keypressed( key, is_repeat )
 
 		if key == '9' then
 			gameState.playerAction = {
-				cost = 3,
+				cost = 2,
 				action = actions.search(gameState, self.player)
 			}
 		end
