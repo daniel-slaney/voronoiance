@@ -5,17 +5,11 @@
 local Level = require 'src/Level'
 local Actor = require 'src/Actor'
 local roomgen = require 'src/roomgen'
+local Layers = require 'src/Layers'
 
-local Layer = {
-	SURFACE = 'SURFACE',
-	CRITTER = 'CRITTER',
-}
 
-local GameState = {
-	Layer = Layer,
-}
+local GameState = {}
 GameState.__index = GameState
-local Layer = GameState.Layer
 
 function GameState.new()
 	local genfunc = roomgen.random
@@ -36,17 +30,18 @@ function GameState.new()
 
 	local level = Level.new(numRooms, genfunc, extents, margin, true)
 	
-	-- { [actor] = { layer=Layer, vertex=vertex } }*
+	-- { [actor] = { layer=layer, vertex=vertex } }*
 	local locations = {}
 	-- { [layer] = {[vertex] = actor}* }*
 	local overlays = {}
-	for layer in pairs(Layer) do
+	for layer in pairs(Layers) do
 		overlays[layer] = {}
 	end
 
 	local result = {
 		margin = margin,
 		level = level,
+		actors = {},
 		locations = locations,
 		overlays = overlays,
 		queue = {},
@@ -66,8 +61,13 @@ function GameState:randomWalkableVertex()
 	return table.random(self.level.walkable.vertices)
 end
 
-function GameState:spawn( layer, vertex, actor )
-	assert(Layer[layer])
+function GameState:spawn( vertex, defname, on_die )
+	local def = Actor.defs[defname]
+	assertf(def, '%s is not an actor def', defname)
+	local actor = Actor.new(def, on_die)
+
+	local layer = actor.layer
+	assert(Layers[layer])
 	assert(self.level.walkable.vertices[vertex])
 	local locations = self.locations
 	local overlay = self.overlays[layer]
@@ -83,12 +83,16 @@ function GameState:spawn( layer, vertex, actor )
 		actor = actor,
 		cost = 0
 	}
+	self.actors[actor] = true
+
+	return actor
 end
 
-function GameState:spawnPlayer( layer, vertex, actor )
+function GameState:spawnPlayer( vertex, on_die )
 	assert(self.player == nil)
+	local actor =  self:spawn(vertex, 'player', on_die)
 	self.player = actor
-	self:spawn(layer, vertex, actor)
+	return actor
 end
 
 function GameState:actorLocation( actor )
@@ -104,6 +108,8 @@ end
 -- actor.
 --
 -- If depth is not supplied it assume infinite depth.
+--
+-- The supplied actor is not in the returned map.
 function GameState:occludedDijkstraMap( actor, depth )
 	depth = depth or math.huge
 	local loc = self.locations[actor]
@@ -113,13 +119,17 @@ function GameState:occludedDijkstraMap( actor, depth )
 		return overlay[vertex] == nil
 	end
 
-	return self.level.walkable:vertexFilteredDistanceMap(loc.vertex, depth, vertexFilter)
+	local result = self.level.walkable:vertexFilteredDistanceMap(loc.vertex, depth, vertexFilter)
+	result[loc.vertex] = nil
+
+	return result
 end
 
 -- As above but doesn't discount vertices occupied by actors in the same layer.
 function GameState:dijkstraMap( actor, depth )
 	depth = depth or math.huge
 	local loc = self.locations[actor]
+	assert(loc)
 	local overlay = self.overlays[loc.layer]
 
 	return self.level.walkable:dmap(loc.vertex, depth)
@@ -147,7 +157,7 @@ function GameState:fov()
 	return result
 end
 
-function GameState:nextAction()
+function GameState:nextAction( blocker )
 	local queue = self.queue
 
 	if #queue < 1 then
@@ -164,6 +174,19 @@ function GameState:nextAction()
 			end
 		end)
 
+	-- for k, v in ipairs(queue) do
+	-- 	print(k, v)
+	-- 	for k2, v2 in pairs(v) do
+	-- 		print('', k2, v2)
+	-- 	end
+	-- end
+
+	-- if queue[1].actor.tag ~= 'player' or queue[1].cost > 0 then
+	-- 	for i, item in ipairs(queue) do
+	-- 		printf('#%d %s:%d cost:%d', i, item.actor.tag, item.actor.id, item.cost)
+	-- 	end
+	-- end
+
 	local result = {}
 	local surplus = queue[1].cost
 
@@ -176,13 +199,22 @@ function GameState:nextAction()
 	end
 
 	local top = queue[1]
-	local cost, actor = top.cost, top.actor
-	local newcost, action = actor.behaviour(self, actor)
+	local actor = top.actor
+
+	if blocker[actor] then
+		return nil, nil
+	end
+
+	local cost, action = actor.behaviour(self, actor)
 	-- only costless calls can have nil actions
 	assert(cost == 0 or action ~= nil)
-	top.cost = newcost
+	top.cost = cost
 
-	return action
+	if action then
+		printf('action! %s:%d cost:%d', actor.tag, actor.id, cost)
+	end
+
+	return action, actor
 end
 
 -- The target vertex must be unoccupied and be a floor.
@@ -219,6 +251,8 @@ function GameState:kill( actor )
 			break
 		end
 	end
+
+	self.actors[actor] = nil
 
 	if actor == self.player then
 		self.player = nil

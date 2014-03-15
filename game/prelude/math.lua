@@ -41,3 +41,7 @@ function clampf( value, min, max )
 	return value
 end
 
+function parabola( t )
+	return -((2*(t-0.5))^2) + 1
+end
+

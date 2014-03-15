@@ -13,6 +13,7 @@ local splash
 local SPLASH_DURATION = 4
 local time = 0
 local frames = 0
+local keypressed = false
 
 function love.load()
 	gFont30 = love.graphics.newFont('resource/inconsolata.otf', 30)
@@ -25,10 +26,12 @@ function love.update( dt )
 	time = time + dt
 	frames = frames + 1
 
+	if not machine and (time >= SPLASH_DURATION * 0.5 or keypressed) then
+		machine = genMachine('start')
+	end
+
 	if machine then
 		machine:update(dt)
-	elseif time >= SPLASH_DURATION * 0.5 then
-		machine = genMachine('start')
 	end
 end
 
@@ -64,6 +67,8 @@ end
 
 function love.keypressed( key, isrepeat )
 	printf('love.keypressed %s %s', key, tostring(isrepeat))
+
+	keypressed = true
 
 	if key == 'escape' then
 		love.event.push('quit')

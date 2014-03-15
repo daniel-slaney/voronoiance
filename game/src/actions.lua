@@ -3,8 +3,7 @@
 --
 
 local Vector = require 'src/Vector'
--- causes a require loop
--- local GameState = require 'src/GameState'
+local Layers = require 'src/Layers'
 
 local actions = {}
 
@@ -18,14 +17,40 @@ local actions = {}
 --    x = [0..1]
 --    y = [0..1]
 
-local function parabola( t )
-	return -((2*(t-0.5))^2) + 1
+function actions.null()
+	local function plan( time )
+		return false
+	end
+
+	return {
+		sync = false,
+		plan = plan
+	}
+end
+
+function actions.kill( gameState, actor )
+	local function plan( time )
+		gameState:kill(actor)
+		return false
+	end
+
+	return {
+		sync = false,
+		plan = plan
+	}
 end
 
 function actions.move( gameState, actor, targetVertex )
 	local loc = gameState:actorLocation(actor)
 	assert(loc)
-	assert(not gameState:actorAt(loc.layer, targetVertex))
+	assertf(not gameState:actorAt(loc.layer, targetVertex), 'actor:%d tried to move on occupied location\n%s', actor.id, debug.traceback())
+
+	local slime = gameState:actorAt(Layers.SLIME, loc.vertex)
+	if slime then
+		slime.stickiness = slime.stickiness - actor.movecost
+
+		return actions.struggle(gameState, actor)
+	end
 
 	local from = Vector.new(loc.vertex)
 	local disp = Vector.to(from, targetVertex)
@@ -67,6 +92,94 @@ function actions.move( gameState, actor, targetVertex )
 	return {
 		sync = false,
 		plan = plan
+	}
+end
+
+function actions.slugmove( gameState, actor, targetVertex )
+	local loc = gameState:actorLocation(actor)
+	assert(loc)
+	assertf(not gameState:actorAt(loc.layer, targetVertex))
+
+	local from = Vector.new(loc.vertex)
+	local disp = Vector.to(from, targetVertex)
+
+	gameState:move(actor, targetVertex)
+
+	local duration = 0.25
+	local apex = gameState.margin * 0.25
+	local position = Vector.new { x=0, y=0 }
+	local offset = Vector.new { x=0, y=0 }
+	local vmadvnv = Vector.madvnv
+
+	local function plan( time )
+		if time > duration then
+			local slime = gameState:actorAt(Layers.SLIME, targetVertex)
+
+			if slime then
+				slime.stickiness = 5
+			else
+				gameState:spawn(targetVertex, 'slime')
+			end
+
+			return false
+		end
+
+		-- lerp the position
+		local bias = time / duration
+		vmadvnv(position, disp, bias, from)
+		-- slugs do not bounce...
+
+		return true, {
+			{
+				fx = 'actor.position',
+				actor = actor,
+				position = position,
+			},
+			{
+				fx = 'actor.offset',
+				actor = actor,
+				offset = offset,
+			}
+		}
+	end
+
+	return {
+		sync = false,
+		plan = plan
+	}
+end
+
+function actions.struggle( gameState, actor )
+	local loc = gameState:actorLocation(actor)
+	assert(loc)
+
+	local duration = 0.25
+	local wobbles = 2
+	local offset = Vector.new { x=0, y=0 }
+	local origin = Vector.new(loc.vertex)
+	local radius = gameState.margin * 0.25
+
+	local function plan( time )
+		if time > duration then
+			return false
+		end
+
+		print('struggle')
+
+		local bias = time / duration
+
+		offset.x = radius * math.sin(bias * 2 * wobbles * math.pi)
+
+		return true, {
+			fx = 'actor.offset',
+			actor = actor,
+			offset = offset,
+		}
+	end
+
+	return {
+		sync = false,
+		plan = plan,
 	}
 end
 
@@ -181,10 +294,8 @@ function actions.leap( gameState, actor, targetVertex )
 
 	local duration = 0.5
 	local impact = duration * 0.25
-	local recover = impact + (duration - impact) * 0.25
 
-	assert(impact < recover)
-	assert(recover < duration)
+	assert(impact < duration)
 
 	local apex = gameState.margin * 0.5
 	local to = Vector.to(actorLoc.vertex, targetVertex)
@@ -199,6 +310,7 @@ function actions.leap( gameState, actor, targetVertex )
 			if target then
 				gameState:kill(target)
 			end
+			gameState:move(actor, targetVertex)
 
 			return false
 		end
@@ -208,37 +320,158 @@ function actions.leap( gameState, actor, targetVertex )
 
 		if time <= impact then
 			local bias = time / impact
-			local y = apex * parabola(bias)
-			vmulvn(actorOffset, to, bias * 0.75)
-			actorOffset.y = actorOffset.y - y
+			vmulvn(actorOffset, to, bias)
+			actorOffset.y = actorOffset.y - (apex * parabola(bias))
 		else
 			actorOffset:set(to)
 		end
 
 		if impact <= time then
-			if time <= recover then
-				local bias = (time - impact) / (recover - impact)
-				bias = math.sqrt(bias)
-				vmulvn(targetOffset, to, bias * 0.2)
-			else
-				local bias = 1 - ((time - recover) / (duration - recover))
-				bias = bias * bias
-				vmulvn(targetOffset, to, bias * 0.2)
-			end
+			local bias = (time - impact) / (duration - impact)
+			vmulvn(targetOffset, to, parabola(bias) * 0.35)
 		end
 
-		return true, {
-			{
+		if target then
+			return true, {
+				{
+					fx = 'actor.offset',
+					actor = actor,
+					offset = actorOffset,
+				},
+				{
+					fx = 'actor.offset',
+					actor = target,
+					offset = targetOffset,
+				},
+			}
+		else
+			return true, {
 				fx = 'actor.offset',
 				actor = actor,
 				offset = actorOffset,
-			},
-			{
-				fx = 'actor.offset',
-				actor = target,
-				offset = targetOffset,
-			},
-		}
+			}
+		end
+	end
+
+	return {
+		sync = true,
+		plan = plan
+	}
+end
+
+function actions.explode( gameState, actor )
+	local dijkstra = gameState:dijkstraMap(actor, 1)
+	local victims = { actor }
+
+	for vertex, distance in pairs(dijkstra) do
+		local victim = gameState:actorAt(Layers.CRITTER, vertex)
+
+		if victim and victim.tag ~= 'bomb' then
+			victims[#victims+1] = victim
+		end
+	end
+
+	local duration = 0.25
+	local colour = { 255, 0, 0, 255 }
+
+	local function plan( time )
+		if time > duration then
+			for _, victim in ipairs(victims) do
+				gameState:kill(victim)
+			end
+
+			return false
+		end
+
+		local bias = time / duration
+		local alpha = math.round(255 * parabola(bias))
+		colour[4] = alpha
+
+		local result = {}
+
+		for vertex in pairs(dijkstra) do
+			result[#result+1] = {
+				fx = 'vertex.colour',
+				vertex = vertex,
+				colour = colour
+			}
+		end
+
+		return true, result
+	end
+
+	return {
+		sync = true,
+		plan = plan
+	}
+end
+
+function actions.throw( gameState, actor, targetVertex, def, text )
+	local actorLoc = gameState:actorLocation(actor)
+	assert(actorLoc)
+	local actorVertex = actorLoc.vertex
+	local target = gameState:actorAt(actorLoc.layer, targetVertex)
+
+	local duration = 0.5
+	local impact = duration * 0.25
+
+	assert(impact < duration)
+
+	local apex = gameState.margin * 0.5
+	local to = Vector.to(actorLoc.vertex, targetVertex)
+	local toLength = to:length()
+	local actorPosition = Vector.new { x=0, y=0 }
+	local targetOffset = Vector.new { x=0, y=0 }
+	local vzero = Vector.new { x=0, y=0 }
+	local vmulvn = Vector.mulvn
+	local vmadvnv = Vector.madvnv
+
+	local function plan( time )
+		if time >= duration then
+			if target then
+				gameState:kill(target)
+			end
+			gameState:spawn(targetVertex, def)
+
+			return false
+		end
+
+		actorPosition:set(vzero)
+		targetOffset:set(vzero)
+
+		if time <= impact then
+			local bias = time / impact
+			vmadvnv(actorPosition, to, bias, actorVertex)
+			actorPosition.y = actorPosition.y - (apex * parabola(bias))
+		else
+			actorPosition:set(targetVertex)
+		end
+
+		if impact <= time then
+			local bias = (time - impact) / (duration - impact)
+			vmulvn(targetOffset, to, parabola(bias) * 0.35)
+		end
+
+		if target then
+			return true, {
+				{
+					fx = 'text',
+					text = text,
+					position = actorPosition,
+				},
+				{
+					fx = 'actor.offset',
+					actor = target,
+					offset = targetOffset,
+				},
+			}
+		else
+			return true, {
+				fx = 'text',
+				text = text,
+				position = actorPosition,
+			}
+		end
 	end
 
 	return {

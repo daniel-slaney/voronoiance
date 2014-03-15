@@ -8,6 +8,7 @@ local AABB = require 'src/AABB'
 local roomgen = require 'src/roomgen'
 local Level = require 'src/Level'
 local Actor = require 'src/Actor'
+local Layers = require 'src/Layers'
 local GameState = require 'src/GameState'
 local behaviours = require 'src/behaviours'
 local actions = require 'src/actions'
@@ -50,10 +51,8 @@ function GameMode:gen()
 	local function on_player_die( gameState, actor )
 		self:become(EndGameMode, 'died')
 	end
-	local player = Actor.new('@', 'player', on_player_die)
 	local start = gameState.level.entry
-
-	gameState:spawnPlayer(GameState.Layer.CRITTER, start, player)
+	local player = gameState:spawnPlayer(start, on_player_die)
 
 	self.gameState = gameState
 	self.player = player
@@ -88,26 +87,57 @@ function GameMode:addFX( fx )
 			Vector.add(offset, offset, fx.offset)
 		end
 	end
+
+	if fx.fx == 'actor.text' then
+		self.fx.actor.texts[fx.actor] = fx.text
+	end
+
+	if fx.fx == 'actor.vertex.colour' then
+		local loc = self.gameState:actorLocation(fx.actor)
+		assert(loc)
+		self.fx.vertex.colours[loc.vertex] = fx.colour
+	end
+
+	if fx.fx == 'vertex.colour' then
+		self.fx.vertex.colours[fx.vertex] = fx.colour
+	end
+
+	if fx.fx == 'text' then
+		local texts = self.fx.texts
+		texts[#texts+1] = {
+			text = fx.text,
+			position = fx.position
+		}
+	end
 end
 
 function GameMode:resetFX()
 	self.fx = {
 		actor = {
 			positions = {},
-			offsets = {}
+			offsets = {},
+			texts = {},
 		},
+		vertex = {
+			colours = {},
+		},
+		texts = {},
 	}
 end
 
 function GameMode:update( dt )
 	local start = love.timer.getTime()
+
+	local adt = (self.fastmode) and math.huge or dt
+
 	if not self.pending then
 		local unsynced = {}
+		local blockers = {}
 
 		local start = love.timer.getTime()
 
 		while true do
-			local action = self.gameState:nextAction()
+			local action, actor = self.gameState:nextAction(blockers)
 		
 			if not action then
 				if #unsynced > 0 then
@@ -117,6 +147,9 @@ function GameMode:update( dt )
 				end
 				break
 			end
+
+			-- Don't want any more actions from this actor.
+			blockers[actor] = true
 
 			if not action.sync then
 				unsynced[#unsynced+1] = {
@@ -142,8 +175,6 @@ function GameMode:update( dt )
 		end
 	end
 
-	local actionDT = (self.fastmode) and math.huge or dt
-
 	local pending = self.pending
 	if pending then
 		local done = true
@@ -155,7 +186,7 @@ function GameMode:update( dt )
 
 			if running then
 				done = false
-				action.time = action.time + actionDT
+				action.time = action.time + adt
 			else
 				table.remove(unsynced, i)
 			end
@@ -172,13 +203,25 @@ function GameMode:update( dt )
 				self:addFX(fx)
 
 				if running then
-					synced.time = synced.time + actionDT
+					synced.time = synced.time + adt
 				else
 					self.pending = nil
 				end
 			end
 		end
 	end
+
+	for actor in pairs(self.gameState.actors) do
+		assert(actor.fx)
+		self:addFX(actor.fx)
+
+		for name, anim in pairs(actor.anims) do
+			local fx = anim.plan(anim.time)
+			anim.time = anim.time + dt
+			self:addFX(fx)
+		end
+	end
+
 	local finish = love.timer.getTime()
 	-- printf('update %.2fs', finish-start)
 end
@@ -213,6 +256,8 @@ function GameMode:draw()
 
 	local fov = self.gameState:fov()
 
+	local colours = self.fx.vertex.colours
+
 	for _, point in ipairs(self.gameState.level.points) do
 		if fov[point] then
 			if point.terrain == 'floor' then
@@ -226,6 +271,12 @@ function GameMode:draw()
 			end
 
 			love.graphics.polygon('fill', point.poly)
+
+			local colour = colours[point]
+			if colour then
+				love.graphics.setColor(colour[1], colour[2], colour[3], colour[4])
+				love.graphics.polygon('fill', point.poly)
+			end
 
 			if point.problem then
 				love.graphics.setColor(255, 0, 255, 255)
@@ -257,7 +308,16 @@ function GameMode:draw()
 	for actor, location in pairs(self.gameState.locations) do
 		local vertex = positions[actor] or location.vertex
 		local offset = offsets[actor] or vzero
-		shadowf('cc', vertex.x + offset.x, vertex.y + offset.y, actor.symbol)
+		local text = self.fx.actor.texts[actor]
+		if text then
+			shadowf('cc', vertex.x + offset.x, vertex.y + offset.y, text)
+		end
+	end
+
+	local texts = self.fx.texts
+	for _, data in ipairs(texts) do
+		local position = data.position
+		shadowf('cc', position.x, position.y, data.text)
 	end
 
 	love.graphics.pop()
@@ -324,19 +384,29 @@ function GameMode:keypressed( key, is_repeat )
 		local seed = os.time()
 		printf('seed:%s', seed)
 		math.randomseed(seed)
-	elseif key == 'm' then
-		local dof = self.gameState:occludedDijkstraMap(self.player, 1)
-		if next(dof) then
-			local targetVertex = table.random(dof)
-			self.gameState:move(self.player, targetVertex)
-		end
 	elseif key == 'z' then
 		self.overview = not self.overview
 	elseif key == '1' then
-		local layer = GameState.Layer.CRITTER
-		local target = self.gameState:randomWalkableVertex()
-		local actor = Actor.new('S', 'simple')
-		self.gameState:spawn(layer, target, actor)
+		-- local defs = { 'grunt', 'slug', 'leaper' }
+		-- local defs = { 'slug' }
+		-- local defs = { 'leaper' }
+		-- local defs = { 'bomb' }
+		local defs = { 'bomber' }
+		local def = defs[math.random(1, #defs)]
+		local layer = Actor.defs[def].layer
+		-- local target = self.gameState:randomWalkableVertex()
+		local fov = self.gameState:fov()
+		local candidates = {}
+		for vertex in pairs(fov) do
+			if vertex.terrain == 'floor' and not self.gameState:actorAt(layer, vertex) then
+				candidates[#candidates+1] = vertex
+			end
+		end
+		printf('#candidates:%s', #candidates)
+		local target = candidates[math.random(1, #candidates)]
+		if target then
+			self.gameState:spawn(target, def)
+		end
 	elseif key == 'left' then
 		self.gameState.fovDepth = self.gameState.fovDepth - 1
 	elseif key == 'right' then
@@ -371,12 +441,11 @@ function GameMode:keypressed( key, is_repeat )
 			end
 
 			if target then
-				local targetActor = gameState:actorAt(GameState.Layer.CRITTER, target)
+				local targetActor = gameState:actorAt(Layers.CRITTER, target)
 
 				if not targetActor then
-					-- self.gameState:move(self.player, target)
 					gameState.playerAction = {
-						cost = 2,
+						cost = self.player.movecost,
 						action = actions.move(gameState, self.player, target)
 					}
 				else
@@ -392,6 +461,11 @@ function GameMode:keypressed( key, is_repeat )
 			gameState.playerAction = {
 				cost = 2,
 				action = actions.search(gameState, self.player)
+			}
+		elseif key == '8' then
+			gameState.playerAction = {
+				cost = 2,
+				action = actions.struggle(gameState, self.player)
 			}
 		end
 	end
