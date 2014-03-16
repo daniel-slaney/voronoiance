@@ -164,8 +164,6 @@ function actions.struggle( gameState, actor )
 			return false
 		end
 
-		print('struggle')
-
 		local bias = time / duration
 
 		offset.x = radius * math.sin(bias * 2 * wobbles * math.pi)

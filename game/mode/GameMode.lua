@@ -13,7 +13,7 @@ local GameState = require 'src/GameState'
 local behaviours = require 'src/behaviours'
 local actions = require 'src/actions'
 
-function shadowf( align, x, y, ... )
+local function shadowf( align, x, y, ... )
 	love.graphics.setColor(0, 0, 0, 255)
 
 	local font = love.graphics.getFont()
@@ -72,6 +72,43 @@ function GameMode:gen()
 	self.pending = nil
 	self:resetFX()
 	self.fastmode = false
+
+	self:_populate()
+end
+
+function GameMode:_populate()
+	local player = self.player
+	local gameState = self.gameState
+	local spawnpoints = table.copy(gameState:dijkstraMap(player))
+
+	-- No spawns near player.
+	local safe = 4
+	for vertex, distance in pairs(spawnpoints) do
+		if distance <= safe then
+			spawnpoints[vertex] = nil
+		end
+	end
+
+	local defs = { 'grunt', 'slug', 'leaper', 'bomber' }
+	local numspawned = 0
+	local maxspawn = math.round(table.count(spawnpoints) * 0.2)
+
+	while numspawned < maxspawn and next(spawnpoints) do
+		local def = defs[math.random(1, #defs)]
+		local vertex = table.random(spawnpoints)
+		assert(vertex)
+
+		local spawned = gameState:spawn(vertex, def)
+		numspawned = numspawned + 1
+
+		local exclusion = gameState:dijkstraMap(spawned, 1)
+
+		for vertex in pairs(exclusion) do
+			spawnpoints[vertex] = nil
+		end
+	end
+
+	printf('#spawned:%d/%d', numspawned, maxspawn)
 end
 
 function GameMode:addFX( fx )
@@ -218,7 +255,7 @@ function GameMode:update( dt )
 				self:addFX(fx)
 
 				if running then
-					synced.time = synced.time + adt
+					synced.time = synced.time + dt
 				else
 					self.pending = nil
 				end
@@ -245,6 +282,7 @@ function GameMode:draw()
 	love.graphics.push()
 
 	love.graphics.setLineStyle('rough')
+	love.graphics.setLineWidth(2)
 
 	local sw, sh = love.graphics.getDimensions()
 	if self.overview then
@@ -270,10 +308,16 @@ function GameMode:draw()
 	end
 
 	local fov = self.gameState:fov()
-
 	local colours = self.fx.vertex.colours
 
-	for _, point in ipairs(self.gameState.level.points) do
+	love.graphics.setStencil(
+		function ()
+			for vertex in pairs(fov) do
+				love.graphics.polygon('fill', vertex.poly)
+			end
+		end)
+
+	for point in pairs(fov) do
 		if fov[point] then
 			if point.terrain == 'floor' then
 				if point.exit then
@@ -319,6 +363,13 @@ function GameMode:draw()
 		end
 	end
 
+	for vertex in pairs(fov) do
+		if vertex.terrain == 'floor' then
+			local radius = 3
+			love.graphics.circle('fill', vertex.x, vertex.y, radius)
+		end	
+	end
+
 	local positions = self.fx.actor.positions
 	local offsets = self.fx.actor.offsets
 	local vzero = Vector.new { x=0, y=0 }
@@ -338,10 +389,41 @@ function GameMode:draw()
 		shadowf('cc', position.x, position.y, data.text)
 	end
 
+	love.graphics.setStencil(nil)
+
+	for vertex in pairs(self.gameState.seen) do
+		if not fov[vertex] then
+			if vertex.terrain == 'floor' then
+				if vertex.exit then
+					local c = math.round(255 * math.abs(math.sin(2*self.time)))
+					local a = 255
+
+					love.graphics.setColor(c, c, c, 128)
+				else
+					love.graphics.setColor(184, 118, 61, 128)
+				end
+			else
+				love.graphics.setColor(64, 64, 64, 128)
+			end
+
+			love.graphics.polygon('fill', vertex.poly)
+		end
+	end
+
+	love.graphics.setColor(0, 0, 0, 255)
+	for vertex in pairs(self.gameState.seen) do
+		if not fov[vertex] then
+			love.graphics.polygon('line', vertex.poly)
+		end
+	end
+
 	love.graphics.pop()
 
+	local depthtext = self.depth == MAX_DEPTH and ' (final level) ' or ' '
 	local fasttext = self.fastmode and '- fast' or ''
-	shadowf('lt', 60, 40, 'D:%d %shz t:%d %s #%d', self.depth, love.timer.getFPS(), self.gameState.turns, fasttext, table.count(self.gameState.level.walkable.vertices))
+	shadowf('lt', 60, 40, 'D:%d%s%s', self.depth, depthtext, fasttext)
+
+	-- shadowf('lt', 60, 40, 'D:%d %shz t:%d %s #%d', self.depth, 	love.timer.getFPS(), self.gameState.turns, fasttext, table.count(self.gameState.level.walkable.vertices))
 
 	self:resetFX()
 end
@@ -397,40 +479,34 @@ local nearby = {
 local delta = 100
 function GameMode:keypressed( key, is_repeat )
 	if key == ' ' then
-		self:gen()
-	elseif key == 'q' then
-		local seed = os.time()
-		printf('seed:%s', seed)
-		math.randomseed(seed)
-	elseif key == 'z' then
+		-- self:gen()
+	-- elseif key == 'q' then
+	-- 	local seed = os.time()
+	-- 	printf('seed:%s', seed)
+	-- 	math.randomseed(seed)
+	elseif key == 'm' then
 		self.overview = not self.overview
-	elseif key == '1' then
-		-- local defs = { 'grunt', 'slug', 'leaper' }
-		-- local defs = { 'slug' }
-		-- local defs = { 'leaper' }
-		-- local defs = { 'bomb' }
-		local defs = { 'bomber' }
-		local def = defs[math.random(1, #defs)]
-		local layer = Actor.defs[def].layer
-		-- local target = self.gameState:randomWalkableVertex()
-		local fov = self.gameState:fov()
-		local candidates = {}
-		for vertex in pairs(fov) do
-			if vertex.terrain == 'floor' and not self.gameState:actorAt(layer, vertex) then
-				candidates[#candidates+1] = vertex
-			end
-		end
-		printf('#candidates:%s', #candidates)
-		local target = candidates[math.random(1, #candidates)]
-		if target then
-			self.gameState:spawn(target, def)
-		end
-	elseif key == 'left' then
-		self.gameState.fovDepth = self.gameState.fovDepth - 1
-	elseif key == 'right' then
-		self.gameState.fovDepth = self.gameState.fovDepth + 1
-	elseif key == '0' then
-		draw = not draw
+	-- elseif key == '1' then
+	-- 	-- local defs = { 'grunt', 'slug', 'leaper' }
+	-- 	-- local defs = { 'slug' }
+	-- 	-- local defs = { 'leaper' }
+	-- 	-- local defs = { 'bomb' }
+	-- 	local defs = { 'bomber' }
+	-- 	local def = defs[math.random(1, #defs)]
+	-- 	local layer = Actor.defs[def].layer
+	-- 	-- local target = self.gameState:randomWalkableVertex()
+	-- 	local fov = self.gameState:fov()
+	-- 	local candidates = {}
+	-- 	for vertex in pairs(fov) do
+	-- 		if vertex.terrain == 'floor' and not self.gameState:actorAt(layer, vertex) then
+	-- 			candidates[#candidates+1] = vertex
+	-- 		end
+	-- 	end
+	-- 	printf('#candidates:%s', #candidates)
+	-- 	local target = candidates[math.random(1, #candidates)]
+	-- 	if target then
+	-- 		self.gameState:spawn(target, def)
+	-- 	end
 	elseif key == 'f' then
 		self.fastmode = not self.fastmode
 	elseif not self.pending then
@@ -473,18 +549,6 @@ function GameMode:keypressed( key, is_repeat )
 					}
 				end
 			end
-		end
-
-		if key == '9' then
-			gameState.playerAction = {
-				cost = 2,
-				action = actions.search(gameState, self.player)
-			}
-		elseif key == '8' then
-			gameState.playerAction = {
-				cost = 2,
-				action = actions.struggle(gameState, self.player)
-			}
 		end
 	end
 end

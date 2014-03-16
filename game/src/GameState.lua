@@ -26,8 +26,8 @@ function GameState.new()
 			max = max,
 		},
 	}
-	-- local numRooms = 7
-	local numRooms = 4
+	local numRooms = 7
+	-- local numRooms = 4
 
 	local level = Level.new(numRooms, genfunc, extents, margin, true)
 	
@@ -210,10 +210,6 @@ function GameState:nextAction( blocker )
 	-- only costless calls can have nil actions
 	assert(cost == 0 or action ~= nil)
 	top.cost = cost
-
-	if action then
-		printf('action! %s:%d cost:%d', actor.tag, actor.id, cost)
-	end
 
 	return action, actor
 end
