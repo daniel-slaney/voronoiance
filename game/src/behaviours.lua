@@ -236,7 +236,7 @@ function behaviours.bomber( gameState, actor )
 				local target = _approach(gameState, dijkstra, actor)
 
 				if not target then
-					coroutine.yield(normal, action.search(gameState, actor))
+					coroutine.yield(normal, actions.search(gameState, actor))
 				else
 					coroutine.yield(actor.movecost, actions.move(gameState, actor, target))
 				end

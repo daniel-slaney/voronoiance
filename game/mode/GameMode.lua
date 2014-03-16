@@ -43,16 +43,29 @@ end
 function GameMode:enter( reason )
 	printf('GameMode:enter(%s)', reason)
 
+	self.time = 0
+	self.depth = 1
 	self:gen()
 end
+
+local MAX_DEPTH = 5
 
 function GameMode:gen()
 	local gameState = GameState.new()
 	local function on_player_die( gameState, actor )
 		self:become(EndGameMode, 'died')
 	end
+	local function on_player_exit( gameState, actor )
+		self.depth = self.depth + 1
+
+		if self.depth > MAX_DEPTH then
+			return self:become(EndGameMode, 'won')
+		end
+
+		self:gen()
+	end
 	local start = gameState.level.entry
-	local player = gameState:spawnPlayer(start, on_player_die)
+	local player = gameState:spawnPlayer(start, on_player_die, on_player_exit)
 
 	self.gameState = gameState
 	self.player = player
@@ -126,6 +139,8 @@ function GameMode:resetFX()
 end
 
 function GameMode:update( dt )
+	self.time = self.time + dt
+
 	local start = love.timer.getTime()
 
 	local adt = (self.fastmode) and math.huge or dt
@@ -261,8 +276,11 @@ function GameMode:draw()
 	for _, point in ipairs(self.gameState.level.points) do
 		if fov[point] then
 			if point.terrain == 'floor' then
-				if point.entry or point.exit then
-					love.graphics.setColor(255, 0, 255, 255)
+				if point.exit then
+					local c = math.round(255 * math.abs(math.sin(2*self.time)))
+					local a = 255
+
+					love.graphics.setColor(c, c, c, 255)
 				else
 					love.graphics.setColor(184, 118, 61, 255)
 				end
@@ -323,7 +341,7 @@ function GameMode:draw()
 	love.graphics.pop()
 
 	local fasttext = self.fastmode and '- fast' or ''
-	shadowf('lt', 60, 40, '%shz t:%d %s', love.timer.getFPS(), self.gameState.turns, fasttext)
+	shadowf('lt', 60, 40, 'D:%d %shz t:%d %s #%d', self.depth, love.timer.getFPS(), self.gameState.turns, fasttext, table.count(self.gameState.level.walkable.vertices))
 
 	self:resetFX()
 end

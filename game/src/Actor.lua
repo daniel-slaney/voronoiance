@@ -117,7 +117,7 @@ Actor.__index = Actor
 
 local _nextId = 1
 
-function Actor.new( def, on_die )
+function Actor.new( def, on_die, on_exit )
 	local id = _nextId
 	_nextId = _nextId + 1
 
@@ -137,7 +137,8 @@ function Actor.new( def, on_die )
 		movecost = def.movecost,
 		stickiness = def.stickiness,
 		anims = {},
-		on_die = on_die or def.on_die
+		on_die = on_die or def.on_die,
+		on_exit = on_exit,
 	}
 
 	fx.actor = result

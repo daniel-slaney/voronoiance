@@ -26,7 +26,8 @@ function GameState.new()
 			max = max,
 		},
 	}
-	local numRooms = 7
+	-- local numRooms = 7
+	local numRooms = 4
 
 	local level = Level.new(numRooms, genfunc, extents, margin, true)
 	
@@ -61,10 +62,10 @@ function GameState:randomWalkableVertex()
 	return table.random(self.level.walkable.vertices)
 end
 
-function GameState:spawn( vertex, defname, on_die )
+function GameState:spawn( vertex, defname, on_die, on_exit )
 	local def = Actor.defs[defname]
 	assertf(def, '%s is not an actor def', defname)
-	local actor = Actor.new(def, on_die)
+	local actor = Actor.new(def, on_die, on_exit)
 
 	local layer = actor.layer
 	assert(Layers[layer])
@@ -88,9 +89,9 @@ function GameState:spawn( vertex, defname, on_die )
 	return actor
 end
 
-function GameState:spawnPlayer( vertex, on_die )
+function GameState:spawnPlayer( vertex, on_die, on_exit )
 	assert(self.player == nil)
-	local actor =  self:spawn(vertex, 'player', on_die)
+	local actor =  self:spawn(vertex, 'player', on_die, on_exit)
 	self.player = actor
 	return actor
 end
@@ -229,6 +230,14 @@ function GameState:move( actor, targetVertex )
 	overlay[location.vertex] = nil
 	overlay[targetVertex] = actor
 	location.vertex = targetVertex
+
+	local on_exit = actor.on_exit
+
+	printf('%s:%d onexit:%s atexit:%s', actor.tag, actor.id, on_exit, targetVertex.exit == true)
+
+	if on_exit and targetVertex.exit then
+		on_exit(gameState, actor)
+	end
 end
 
 function GameState:kill( actor )
