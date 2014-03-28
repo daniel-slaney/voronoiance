@@ -12,6 +12,7 @@ local newgrid = require 'src/newgrid'
 local Graph = require 'src/Graph'
 local Voronoi = require 'src/Voronoi'
 local Vector = require 'src/Vector'
+local convex = require 'src/convex'
 
 local roomgen = {
 	grid = nil,
@@ -25,6 +26,7 @@ local function vertex( x, y, terrain )
 		-- These are added in Level.lua
 		poly = nil,
 		hull = nil,
+		hulls = {}
 	}
 end
 
@@ -78,8 +80,6 @@ function roomgen.grid( bbox, margin )
 	end
 
 	local dirs = {
-		-- {  0, -1 },
-		-- { -1, 0 },
 		{  1, 0 },
 		{  0, 1 },
 	}
@@ -165,7 +165,7 @@ function roomgen.grid( bbox, margin )
 	return points, graph, overlay
 end
 
-function roomgen.hexgrid( bbox, margin, terrain, fringe )
+function roomgen.hexgrid( bbox, margin, terrain )
 	-- printf('roomgen.hexgrid')
 	local result = {}
 
@@ -248,97 +248,106 @@ function roomgen.hexgrid( bbox, margin, terrain, fringe )
 
 	return result, graph, nil
 end
-
--- Based on the _enclose() function in Level.lua.
-function roomgen.enclose( aabb, margin, terrain, fringe )
-	-- printf('roomgen.enclose')
+	
+function roomgen.relaxed( aabb, margin, terrain )
+	local start = love.timer.getTime()
 	local width = math.ceil(aabb:width() / margin)
 	local height = math.ceil(aabb:height() / margin)
 
 	margin = aabb:width() / width
 
-	local grid = newgrid(width, height, false)
-
-	-- grid.print()
-
-	local dirs = {
-		{ 0, 0 },
-		{ -1, -1 },
-		{  0, -1 },
-		{  1, -1 },
-		{ -1,  0 },
-		{  1,  0 },
-		{ -1,  1 },
-		{  0,  1 },
-		{  1,  1 },
-	}
-
 	local points = {}
 
-	for x= 1, width do
+	local border = 0.4
+	for x = 1, width do
 		for y = 1, height do
-			-- if not grid.get(x, y) then
-				for attempt = 1, 10 do
-					-- local rx = aabb.xmin + ((x-1) * margin) + (margin * math.random())
-					-- local ry = aabb.ymin + ((y-1) * margin) + (margin * math.random())
+			local cx = aabb.xmin + (x-1) * margin
+			local cy = aabb.ymin + (y-1) * margin
 
-					local rx = aabb.xmin + ((x-1) * margin) + (margin * math.random())
-					local ry = aabb.ymin + ((y-1) * margin) + (margin * math.random())
-
-					local candidate = vertex(rx, ry, 'floor')
-					local empty = {}
-					local accepted = true
-
-					for _, dir in ipairs(dirs) do
-						local dx, dy = x + dir[1], y + dir[2]
-						
-						if 1 <= dx and dx <= width and 1 <= dy and dy <= height then
-							for _, vertex in ipairs(grid.get(dx, dy) or empty) do
-								if Vector.toLength(vertex, candidate) < margin then
-									accepted = false
-									break
-								end
-							end
-						end
-
-						if not accepted then
-							break
-						end
-					end
-
-					if accepted then
-						local cell = grid.get(x, y)
-
-						if cell then
-							cell[#cell+1] = candidate
-						else
-							cell = { candidate }
-							grid.set(x, y, cell)
-						end
-
-						points[#points+1] = candidate
-						-- break
-					end
-				end
-			-- end
+			local dx = (margin * border) + math.random() * margin * 2 * border
+			local dy = (margin * border) + math.random() * margin * 2 * border
+			
+			local v = vertex(cx+dx, cy+dy, 'floor')
+			points[#points+1] = v
 		end
 	end
 
 	local bbox = {
-		xl = aabb.xmin,
-		xr = aabb.xmax,
-		yt = aabb.ymin,
-		yb = aabb.ymax,
+		xl = aabb.xmin - margin,
+		xr = aabb.xmax + margin,
+		yt = aabb.ymin - margin,
+		yb = aabb.ymax + margin,
 	}
 
-	local diagram = Voronoi:new():compute(points, bbox)
+	local voronoi = Voronoi:new()
+	local diagram
+	local iterations = 0
+	local maxIterations = 10
+
+	repeat
+		local iterstart = love.timer.getTime()
+		diagram = voronoi:compute(points, bbox)
+
+		local maxdisp = 0
+
+		for _, cell in ipairs(diagram.cells) do
+			if #cell.halfedges >= 3 then
+				local hull = {}
+				
+				for _, halfedge in ipairs(cell.halfedges) do
+					local start = halfedge:getStartpoint()
+					hull[#hull+1] = start
+				end
+
+				assertf(#hull > 2, 'hull has %d points', #hull)
+
+				hull = convex.hull(hull)
+
+				local centroid = convex.centroid(hull)
+				local site = cell.site
+				local disp = Vector.toLength(site, centroid)
+				maxdisp = math.max(disp, maxdisp)
+				site.x, site.y = centroid.x, centroid.y
+			else
+				for i = 1, #points do
+					if points[i] == cell.site then
+						table.remove(points, i)
+						break
+					end
+				end
+			end
+		end
+
+		local minedge = math.huge
+		local minspacing = math.huge
+		for _, edge in ipairs(diagram.edges) do
+            local lSite = edge.lSite
+            local rSite = edge.rSite
+            if lSite and rSite then
+                local edgeLen = Vector.toLength(edge.va, edge.vb)
+                minedge = math.min(edgeLen, minedge)
+                local spacing = Vector.toLength(lSite, rSite)
+                minspacing = math.min(spacing, minspacing)
+            end
+		end
+
+		local dispPC = 100 * (maxdisp/margin)
+		local minedgePC = 100 * (minedge/margin)
+		-- printf('#%d max |s|:%.2f %.1f%% minedge:%.1f%% spacing:%.2f', iterations, maxdisp, dispPC, minedgePC, minspacing)
+
+		iterations = iterations + 1
+		local done = iterations == maxIterations
+		-- We allow relaxed rooms to be slightly closer packed than normal
+		local spaced = minspacing >= margin * 0.8
+		local spread = minedgePC > 5
+	until done or (spaced and spread)
+
 	local graph = Graph.new()
 
 	for _, point in ipairs(points) do
 		graph:addVertex(point)
 	end
 
-	-- First add the vertices and contruct the polygon for the vertices.
 	for _, cell in ipairs(diagram.cells) do
 		local point = cell.site
 		local border = false
@@ -346,38 +355,16 @@ function roomgen.enclose( aabb, margin, terrain, fringe )
 		for _, halfedge in ipairs(cell.halfedges) do
 			local lSite = halfedge.edge.lSite
 			local rSite = halfedge.edge.rSite
-			
-			-- not site means it's an border cell which we'll turn into a wall.
-			if lSite == nil or rSite == nil then
-				point.terrain = 'wall'
-			elseif not graph:isPeer(lSite, rSite) then
+
+			if lSite and rSite and not graph:isPeer(lSite, rSite) then
 				graph:addEdge({}, lSite, rSite)
 			end
 		end
 	end
 
-	-- we only want one thick walls so kill any wall points with only wall peers.
-	for vertex, peers in pairs(graph.vertices) do
-		if vertex.terrain == 'wall' then
-			local cull = true
-			for peer, _ in pairs(peers) do
-				if peer.terrain == 'floor' then
-					cull = false
-					break
-				end
-			end
+	local finish = love.timer.getTime()
 
-			if cull then
-				graph:removeVertex(vertex)
-				for i = 1, #points do
-					if vertex == points[i] then
-						table.remove(points, i)
-						break
-					end
-				end
-			end
-		end
-	end
+	printf('relexad %.3fs', finish-start)
 
 	return points, graph, nil
 end
@@ -388,26 +375,35 @@ local function brownian( genfunc )
 		function ( bbox, margin )
 			local points, graph, overlay = genfunc(bbox, margin)
 
+			local centre = bbox:centre()
 			local floors = {}
+			local mindisp = math.huge
+			local seed = nil
 			for _, point in ipairs(points) do
 				if point.terrain == 'floor' and next(graph.vertices[point]) ~= nil then
 					floors[point] = true
+					local disp = Vector.toLength(centre, point)
+					if disp < mindisp then
+						mindisp = disp
+						seed = point
+					end
 				end
 			end
 
+			assert(seed ~= nil)
+
 			local numFloors = table.count(floors)
-			local point = table.random(floors)
-			local seed = point
+			assert(numFloors >= 4)
+			local point = seed
+
 			local found = { [point] = true }
 			local count = 1
-			local max = numFloors * 0.75
-			local attempts = 0
-			local maxAttempts = 2 * numFloors
+			
+			local maxCount = math.round(numFloors * 0.75)
+			local minCount = math.round(numFloors * 0.5)
 
-			while count < max and attempts < maxAttempts do
+			while count < maxCount do
 				local peer = table.random(graph.vertices[point])
-
-				attempts = attempts + 1
 
 				if peer.terrain == 'floor' then
 					if not found[peer] then
@@ -415,9 +411,11 @@ local function brownian( genfunc )
 						count = count + 1
 					end
 					point = peer
-				elseif math.random(1, 3) == 1 then
-					break
 				else
+					if math.random(1, 5) == 1 then
+						break
+					end
+					-- hit a wall so let's restart
 					point = seed
 				end
 			end
@@ -476,12 +474,12 @@ end
 roomgen.browniangrid = brownian(roomgen.grid)
 roomgen.brownianhexgrid = brownian(roomgen.hexgrid)
 roomgen.brownianenclose = brownian(roomgen.enclose)
+roomgen.brownianrelaxed = brownian(roomgen.relaxed)
 
 local _genfuncs = {
 	roomgen.browniangrid,
-	-- roomgen.grid,
 	roomgen.brownianhexgrid,
-	roomgen.brownianenclose,
+	roomgen.brownianrelaxed,
 }
 
 function roomgen.random( bbox, margin )

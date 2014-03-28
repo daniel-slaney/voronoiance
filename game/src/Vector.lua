@@ -176,14 +176,13 @@ function Vector.advance( self, target, distance )
 	self.y = self.y - disp.y
 end
 
-local _offsetv = Vector.new { x=0, y=0 }
 function Vector.progress( self, distance )
 	local l = Vector.length(self)
-	_offsetv.x = (self.x / l) * distance
-	_offsetv.y = (self.y / l) * distance
+	local ox = (self.x / l) * distance
+	local oy = (self.y / l) * distance
 
-	self.x = self.x + _offsetv.x
-	self.y = self.y + _offsetv.y
+	self.x = self.x + ox
+	self.y = self.y + oy
 end
 
 function Vector.nearest( vectors1, vectors2 )
@@ -232,16 +231,16 @@ function Vector.__tostring( self )
 end
 
 
-Vector.tostring = __tostring
+-- Vector.tostring = __tostring
 
-local test1 = Vector.new { x = 0, y = 1 }
-local test2 = Vector.new { x = 1, y = 0 }
-local test3 = Vector.new { x = 0, y = -1 }
-local test4 = Vector.new { x = -1, y = 0 }
+-- local test1 = Vector.new { x = 0, y = 1 }
+-- local test2 = Vector.new { x = 1, y = 0 }
+-- local test3 = Vector.new { x = 0, y = -1 }
+-- local test4 = Vector.new { x = -1, y = 0 }
 
-print(test1, test1, test1:signedAngle(test1))
-print(test1, test2, test1:signedAngle(test2))
-print(test1, test3, test1:signedAngle(test3))
-print(test1, test4, test1:signedAngle(test4))
+-- print(test1, test1, test1:signedAngle(test1))
+-- print(test1, test2, test1:signedAngle(test2))
+-- print(test1, test3, test1:signedAngle(test3))
+-- print(test1, test4, test1:signedAngle(test4))
 
 return Vector

@@ -15,23 +15,27 @@ function LevelMode:enter()
 end
 
 function LevelMode:gen()
+	local genfunc = roomgen.random
 	-- local genfunc = roomgen.brownianhexgrid
 	-- local genfunc = roomgen.hexgrid
 	-- local genfunc = roomgen.enclose
-	local genfunc = roomgen.random
 	-- local genfunc = roomgen.browniangrid
+	-- local genfunc = roomgen.relaxed
+	-- local genfunc = roomgen.brownianrelaxed
 	local margin = 40
+	local min = margin * 7
+	local max = margin * 7
 	local extents = {
 		width = {
-			min = margin * 5,
-			max = margin * 10,
+			min = min,
+			max = max,
 		},
 		height = {
-			min = margin * 5,
-			max = margin * 10,
+			min = min,
+			max = max,
 		},
 	}
-	local numRooms = 10
+	local numRooms = 7
 
 	self.level = Level.new(numRooms, genfunc, extents, margin, false)
 end
@@ -73,7 +77,10 @@ function LevelMode:draw()
 
 		if drawVoronoi then
 			for _, point in ipairs(self.level.points) do
-				if point.terrain == 'floor' then
+				if point.critical then
+					local b = 64
+					love.graphics.setColor(184+b, 118+b, 61+b, 255)
+				elseif point.terrain == 'floor' then
 					love.graphics.setColor(184, 118, 61, 255)
 				else
 					love.graphics.setColor(64, 64, 64, 255)
@@ -104,17 +111,18 @@ function LevelMode:draw()
 
 			for j = 1, #points do
 				local point = points[j]
-				local radius = 3
+				local radius = 5
 
 				if point.terrain == 'floor' then
-					love.graphics.setColor(0, 255, 0, 255)
+					love.graphics.setColor(0,4255, 0, 255)
+					love.graphics.circle('fill', point.x, point.y, radius)
 				elseif points.terrain == 'filler' then
 					love.graphics.setColor(255, 0, 255, 255)
+					love.graphics.circle('line', point.x, point.y, radius)
 				else
 					love.graphics.setColor(255, 255, 255, 255)
+					love.graphics.circle('line', point.x, point.y, radius)
 				end
-
-				love.graphics.circle('fill', point.x, point.y, radius)
 			end
 
 			love.graphics.setColor(0, 0, 255, 255)
@@ -146,13 +154,37 @@ function LevelMode:draw()
 			end
 		end
 
+		local hulls = {}
+		for i, point in ipairs(self.level.points) do
+			if point.hulls then
+				for hull in pairs(point.hulls) do
+					hulls[hull] = true
+				end
+			end
+		end
+
+		for i, room in ipairs(self.level.rooms) do
+			hulls[room.safehull] = true
+		end
+
+		for hull in pairs(hulls) do
+			local poly = {}
+
+			for i, point in ipairs(hull) do
+				poly[#poly+1] = point.x
+				poly[#poly+1] = point.y
+			end
+
+			love.graphics.polygon('line', poly)
+		end
+
 		love.graphics.setColor(128, 128, 128, 255)
 		for edge, endverts in pairs(self.level.connections.edges) do
 			local a, b = endverts[1], endverts[2]
 			love.graphics.line(a.x, a.y, b.x, b.y)
 		end
 
-		love.graphics.setColor(255, 0, 255, 255)
+		love.graphics.setColor(0, 255, 0, 255)
 		for _, point in ipairs(self.level.corridors) do
 			local radius = 4
 			love.graphics.circle('fill', point.x, point.y, radius)

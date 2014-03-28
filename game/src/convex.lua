@@ -4,11 +4,15 @@
 
 local Vector = require 'src/Vector'
 
+-- TODO: this could be more optimal garbage wise.
 local function _isConcaveEdge( point1, point2, point3 )
 	local v1to3 = Vector.to(point1, point3)
 	local v1to2 = Vector.to(point1, point2)
 
-	return Vector.dot(v1to3:perp(), v1to2) > 0
+	-- Use an epsilon instead of 0 to stop colinear edges being
+	-- created for hulls.
+	local epsilon = 1e-9
+	return Vector.dot(v1to3:perp(), v1to2) > epsilon
 end
 
 -- Graham's scan, produces clockwise sequence of points.
@@ -62,6 +66,34 @@ local function hull( points )
 	end
 
 	return result
+end
+
+local function fromLine( p1, p2, border )
+	assert(border > 0)
+
+	local normal = Vector.to(p1, p2):normalise()
+
+	local perp = normal:perp()
+	local corners = {
+		Vector.new {
+			x = p1.x + (border * perp.x) + (border * -normal.x),
+			y = p1.y + (border * perp.y) + (border * -normal.y),
+		},
+		Vector.new {
+			x = p1.x + (border * -perp.x) + (border * -normal.x),
+			y = p1.y + (border * -perp.y) + (border * -normal.y),
+		},
+		Vector.new {
+			x = p2.x + (border * perp.x) + (border * normal.x),
+			y = p2.y + (border * perp.y) + (border * normal.y),
+		},
+		Vector.new {
+			x = p2.x + (border * -perp.x) + (border * normal.x),
+			y = p2.y + (border * -perp.y) + (border * normal.y),
+		}
+	}
+	
+	return hull(corners)
 end
 
 -- NOTE: counts a point on the edge of the hull as being inside.
@@ -124,11 +156,9 @@ local function centroid( hull )
 end
 
 -- SAT based convex hull collision test.
-local function collides( hull1, hull2, offset1, offset2, margin )
-	scale = scale or 0
+local function collides( hull1, hull2, offset1, offset2 )
 	local vnorm = Vector.normalise
 	local vadd = Vector.add
-	local vprogress = Vector.progress
 	local vsub = Vector.sub
 	local vdot = Vector.dot
 	local norm = Vector.new { x=0, y=0 }
@@ -149,7 +179,6 @@ local function collides( hull1, hull2, offset1, offset2, margin )
 
 		for k = 1, #hull1 do
 			vadd(disp, hull1[k], offset1)
-			vprogress(disp, margin)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -161,7 +190,6 @@ local function collides( hull1, hull2, offset1, offset2, margin )
 
 		for k = 1, #hull2 do
 			vadd(disp, hull2[k], offset2)
-			vprogress(disp, margin)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -176,8 +204,7 @@ local function collides( hull1, hull2, offset1, offset2, margin )
 
 	for i = 1, #hull2 do
 		local p1 = hull2[i]
-		local j = i+1
-		local p2 = hull2[j <= #hull2 and j or 1]
+		local p2 = hull2[i+1] or hull2[1]
 
 		vsub(norm, p2, p1)
 		vnorm(norm)
@@ -188,7 +215,6 @@ local function collides( hull1, hull2, offset1, offset2, margin )
 
 		for k = 1, #hull2 do
 			vadd(disp, hull2[k], offset2)
-			vprogress(disp, margin)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -200,7 +226,6 @@ local function collides( hull1, hull2, offset1, offset2, margin )
 
 		for k = 1, #hull1 do
 			vadd(disp, hull1[k], offset1)
-			vprogress(disp, margin)
 			vsub(disp, disp, origin)
 			local proj = vdot(norm, disp)
 
@@ -217,10 +242,52 @@ local function collides( hull1, hull2, offset1, offset2, margin )
 	return true
 end
 
+-- mitre offset of a hull
+local function offset( hull, amount )
+	assert(amount > 0)
+
+
+	local result = {}
+
+	local dir = Vector.new { x=0, y=0 }
+	local prevdir = Vector.new { x=0, y=0 }
+	local vsub = Vector.sub
+	local vnorm = Vector.normalise
+    local vdot = Vector.dot
+
+	for i = 1, #hull do
+		local p1 = hull[i]
+		local p2 = hull[i+1] or hull[1]
+
+		vsub(dir, p2, p1)
+		vnorm(dir)
+
+		result[#result+1] = Vector.new {
+			x = p1.x + amount * -dir.y,
+			y = p1.y + amount * dir.x
+		}
+		result[#result+1] = Vector.new {
+			x = p2.x + amount * -dir.y,
+			y = p2.y + amount * dir.x
+		}
+	end
+
+	for i = 1, #result do
+		local p1 = result[i]
+		local p2 = result[i+1] or result[1]
+
+		assert(Vector.toLength(p1, p2) > 0)
+	end
+
+	return result
+end
+
 return {
 	hull = hull,
+	fromLine = fromLine,
 	contains = contains,
 	signedArea = signedArea,
 	centroid = centroid,
 	collides = collides,
+	offset = offset
 }

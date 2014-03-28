@@ -1,66 +1,76 @@
 TODO
 
-- Some actors need specific values, e.g. slime needs a lifetime
-  - Some form of components maybe...
-  - Sod it, just fill actor with crap because time constraints!
+- End Game is a little abrupt.
+- Enemy AI is a bit flakey
+  - Specifically bombers seem to not care when they're close.
+    - They would be hard to kill otherwise though.
+- The help screen is hard to read
+  - Also just controls and no general information.
+- No indication that ? toggles help outside of the help screen
+- Slime colours not informative enough.
+- It's probably too hard
+- Need some abilities
+- Need some progression
+- WOuld be nice to know when bombers have bombs ready.
+- Need variation in dungeon theme
+  - At least some different colours by depth
+  - Maybe different terrain types even if they don't effect gameplay
+  - Maybe brogue style lakes?
+  - Grass and other floor covering might be good.
+    - How will they interact with slugs and slime?
 
-- need to spawn monsters
+- Line of Sight
+  - Could use shadow casting
+    - Problem with partially uncovered cells.
+      - Should the uncovered parts be rendered as 'seen' but not in view?
 
-- Leapers
-- Slugs
-- Bomb guys (copied from Hoplite)
-- Maybe something that messes with FoW
-- Siren from DCSS that limits player movement
-- Gassy zombie?
+- Not enough enemy types
+- Level gen is still creates weirdness
+  - Cells connected by tiny walls
+    - Need hulls for corridors, especially very short ones.
+    - This is so the enclose code doesn't put filler near corridors.
+      - Tried this, makes corridors wider which is a little strange.
+      - Using hulls for the corridors and adding buffer points parallel helps.
+  - Some missing diagonals
+    - This happens when enclose puts points near to where a grid would
+      place them.
+  - roomgen.enclose() creates some strange rooms with nasty edges
+    - trying a new roomgen that creates random points then uses a few iterations
+      of lloyd's relaxation. no more silly edges!
+      - It's not perfect and a bit slow but I'm going with it.
+  - Corridors that merge.
+    - Choosing the nearest points between rooms is causing it
+    - Changing to a corridor algotihm that tries to be as close as possible to
+      the line between centroids of the repsective rooms.
+      - Looking good so far.
 
-- FoW (Fog of War) and FoV (Field of View)
-  - seen vertices
-    - how to draw them as fogged?
-      - assign FoV and seen colours
-      - some general technique.
-  - in view vertices
-  - see through walls?
-    - ideally one deep, use edgeFilteredDistanceMap()
-
-- rendering
-  - want to be able to draw things that cross over the edge of FoV
-    - for example a monster walking into view shouldn;t just appear.
-  - solutions
-    - draw over unseen cells with black at the end of other rendering but
-      before GUI
-      - what about seen but not in FoV cells?
-      - especially if they have effects on them.
-    - stencil out for things in FoV
-      - not sure about efficiency
-      - well for symbol actors but slime?
-      - don't want to implement remembering cell contents if possible.
-
-- leapers
-  - leap action
-  - bounce action
-    - needs to set an fx every frame while bouncing
-    - can we re-use the plan logic?
-      - probably not directly but the code will be similar.
-- slugs
-  - needs to spawn slime when it dies.
-  - slime
-    - dropping slime actors
-      - render slime
-      - slime needs a lifetime
-    - impeading movement of certain actors, e.g. everything except slugs
-      - need struggle/entangled action if you try and move when you can't
-    - rendering
-      - could change colour of tile
-      - render a screen space texture using stencils
-- bombers
-  - throw action
-  - explode action
-  - push action (for shield bash) (takes the place of search or rest)
+- Want a nice build script to create the *.love, exes and app.
 
 
+- Tech Debt
+  - Factor Level gen into functions operating only on passed in state instead
+    of methods.
+  - There's too many Demeter violations looking into level graphs and so on.
+  - Inconsistent use of the terms point, vertex and so on.
 
-- Help screen text
-- End game screen
-  - Maybe some stats...
-- Splash screen
-  - Display over the game and fade out for the first few seconds.
+
+-- COMMIT
+
+-- stuff to be done before commit
+-- - check new levelgen in gamemode
+-- - check that levels are connected and if not could they be made connected easily
+--   - e.g. change isolated floor into wall.
+
+Improvements to level gen:
+
+- Relaxed rooms replace enclose rooms.
+- Room placement doesn't waste as many rooms and places them at more appropiate
+  distance from each other.
+- Corridors have tidier cells and don't overlap as much.
+- No paths over very short edges.
+- Trim stragglers.
+- Critical path is found.
+- convex.hull() no longer generates colinear edges.
+- Tests run on startup commented out or surrouned with if false then ... end.
+
+

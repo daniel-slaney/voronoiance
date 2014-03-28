@@ -87,8 +87,6 @@ local function _newinstance( machine, level, state )
 end
 
 local function _become( instance, state, ... )
-	local info = debug.getinfo(1)
-	for k, v in pairs(info) do print('info', k, v) end
 	local instancemt = getmetatable(instance)
 	if instancemt.exiting then
 		error('become called while exiting state', 2)
@@ -259,72 +257,73 @@ local state = {
 }
 
 -- test
+if false then
+	local schema = state.schema {
+		draw = true,
+		focus = true,
+		keypressed = true,
+		keyreleased = true,
+		mousepressed = true,
+		mousereleased = true,
+		quit = true,
+		update = true,
+		textinput = true,
+		joystickpressed = true,
+		joystickreleased = true,
+	}
 
-local schema = state.schema {
-	draw = true,
-	focus = true,
-	keypressed = true,
-	keyreleased = true,
-	mousepressed = true,
-	mousereleased = true,
-	quit = true,
-	update = true,
-	textinput = true,
-	joystickpressed = true,
-	joystickreleased = true,
-}
+	local test1 = state.state(schema, 'test1')
+	local test2 = state.state(schema, 'test2')
+	local test3 = state.state(schema, 'test3')
 
-local test1 = state.state(schema, 'test1')
-local test2 = state.state(schema, 'test2')
-local test3 = state.state(schema, 'test3')
+	-- test1
 
--- test1
+	function test1:enter(arg)
+		print(arg, arg)
+		return self:become(test2, 'bar')
+	end
 
-function test1:enter(arg)
-	print(arg, arg)
-	return self:become(test2, 'bar')
+	function test1:exit()
+		print('test1:exit()')
+	end
+
+	-- test2
+
+	function test2:enter(arg)
+		print('test2', arg)
+	end
+
+	function test2:draw()
+		print('test2:draw')
+	end
+
+	function test2:update(dt)
+		print('test2:update', dt)
+		return self:push(test3, 'baz')
+	end
+
+	-- test3
+
+	function test3:enter(arg)
+		print('test3', arg)
+	end
+	function test3:exit(arg)
+		print('test3:exit()')
+	end
+	function test3:update(dt)
+		print('test3:update', dt)
+		return self:kill()
+	end
+	local machine = state.machine(schema, test1, 'foo')
+
+	local function printf( ... ) print(string.format(...)) end
+
+	printf('#stack %d', #machine.stack)
+	machine:update(1/30)
+	printf('#stack %d', #machine.stack)
+	print(machine.update)
+	printf('#stack %d', #machine.stack)
+	machine:draw()
 end
-
-function test1:exit()
-	print('test1:exit()')
-end
-
--- test2
-
-function test2:enter(arg)
-	print('test2', arg)
-end
-
-function test2:draw()
-	print('test2:draw')
-end
-
-function test2:update(dt)
-	print('test2:update', dt)
-	return self:push(test3, 'baz')
-end
-
--- test3
-
-function test3:enter(arg)
-	print('test3', arg)
-end
-function test3:exit(arg)
-	print('test3:exit()')
-end
-function test3:update(dt)
-	print('test3:update', dt)
-	return self:kill()
-end
-local machine = state.machine(schema, test1, 'foo')
-
-local function printf( ... ) print(string.format(...)) end
-
-printf('#stack %d', #machine.stack)
-machine:update(1/30)
-printf('#stack %d', #machine.stack)
-print(machine.update)
-printf('#stack %d', #machine.stack)
-machine:draw()
 
 return state

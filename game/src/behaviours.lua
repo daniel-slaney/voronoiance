@@ -207,7 +207,7 @@ function behaviours.bomber( gameState, actor )
 			local vertex = gameState:actorLocation(actor).vertex
 			local targetVertex = gameState:actorLocation(player).vertex
 
-			local range = 3
+			local range = 2
 			if dijkstra[vertex] <= range and cooldown <= 0 then
 				local dof = gameState:occludedDijkstraMap(player, 1)
 

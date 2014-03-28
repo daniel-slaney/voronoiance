@@ -8,6 +8,7 @@ local roomgen = require 'src/roomgen'
 local Graph = require 'src/Graph'
 local graphgen = require 'src/graphgen'
 local convex = require 'src/convex'
+local geometry = require 'src/geometry'
 local newgrid = require 'src/newgrid'
 local Voronoi = require 'src/Voronoi'
 local dirs = require 'src/dirs'
@@ -36,6 +37,7 @@ function Level.new( numRooms, genfunc, extents, margin, check )
 			longestPath = math.huge,
 			entry = nil,
 			exit = nil,
+			critical = nil,
 		}
 
 		setmetatable(result, Level)
@@ -44,9 +46,10 @@ function Level.new( numRooms, genfunc, extents, margin, check )
 		result:_connectRooms()
 		result.corridors = result:_gencorridors(margin)
 		result:_enclose(margin)
-		result:_genvoronoi()
+		result:_genvoronoi(margin)
+		result:_trim()
 		result:_gendirs()
-		local connected = result.walkable:isConnected()
+		local connected = result:isConnected()
 		local dirsOK = not result.dirsProblem
 		printf('connected:%s dirs ok:%s', connected, dirsOK)
 		if not check then
@@ -56,6 +59,7 @@ function Level.new( numRooms, genfunc, extents, margin, check )
 
 	result:_genpaths()
 	result:_genentry()
+	result:_gencritical()
 
 	local finish = love.timer.getTime()
 
@@ -98,15 +102,19 @@ function Level:_roomgen( genfunc, extents, margin )
 			vsub(point, point, centroid)
 		end
 
+		local safehull = convex.offset(hull, margin)
+
 		local aabb = AABB.newFromPoints(points)
 
 		for _, point in ipairs(points) do
-			point.hull = hull
+			point.hulls = { [hull] = true }
 		end
 
 		return {
 			points = points,
 			hull = hull,
+			centroid = centroid,
+			safehull = safehull,
 			aabb = aabb,
 			graph = graph,
 			overlay = overlay
@@ -114,6 +122,20 @@ function Level:_roomgen( genfunc, extents, margin )
 	end
 
 	return nil
+end
+
+local function _distanceToHullEdge( hull, point, dir )
+	assert(convex.contains(hull, point))
+
+	local hit = Vector.new { x=0, y=0 }
+	for i = 1, #hull do
+		local p1 = hull[i]
+		local p2 = hull[i+1] or hull[1]
+
+		if geometry.rayLineIntersection(point, dir, p1, p2, hit) then
+			return Vector.toLength(point, hit)
+		end
+	end
 end
 
 function Level:_insertRoom( genfunc, extents, margin )
@@ -124,30 +146,39 @@ function Level:_insertRoom( genfunc, extents, margin )
 	end
 
 	local vadd = Vector.add
+	local vmulvn = Vector.mulvn
 	local centre = Vector.new { x=400, y=300 }
+	local dir = Vector.new { x=0, y=0 }
+	local opdir = Vector.new { x=0, y=0 }
+	local vzero = Vector.new { x=0, y=0 }
 	local rooms = self.rooms
 
-	if #rooms > 0 then
-		local anchorIndex = math.random(1, #rooms)
-		local anchor = rooms[anchorIndex]
-		local ax = anchor.centroid.x
-		local ay = anchor.centroid.y
-		local rw = room.aabb:width()
-		local rh = room.aabb:height()
-		local vzero = Vector.new { x=0, y=0 }
-		local count = 0
-		local done = false
+	table.shuffle(rooms)
 
-		while not done do
-			centre.x = math.random(ax-rw, ax+rw)
-			centre.y = math.random(ay-rh, ay+rh)
-			count = count + 1
+	local done = false
+	for attempt = 1, 10 do
+		local theta = math.random() * math.pi * 2
+		dir.x = math.sin(theta)
+		dir.y = math.cos(theta)
+
+		opdir.x = -dir.x
+		opdir.y = -dir.y
+
+		local d2 = _distanceToHullEdge(room.safehull, room.centroid, opdir)
+
+		for i, anchor in ipairs(rooms) do
+			local pivot = anchor.centroid
+			local safehull = anchor.safehull
+			local d1 = _distanceToHullEdge(anchor.safehull, anchor.centroid, dir)
+
+			local gap = margin
+			vmulvn(centre, dir, d1 + gap + d2)
+			vadd(centre, pivot, centre)
 
 			local collision = false
-			for i = 1, #rooms do
-				local other = rooms[i]
-
-				if convex.collides(room.hull, other.hull, centre, vzero, margin) then
+			for j = 1, #rooms do
+				local other = rooms[j]
+				if convex.collides(room.safehull, other.safehull, centre, vzero) then
 					collision = true
 					break
 				end
@@ -155,16 +186,25 @@ function Level:_insertRoom( genfunc, extents, margin )
 
 			if not collision then
 				done = true
-			elseif count >= 10 then
-				return
+				break
 			end
-		end 
+		end
+
+		if done then
+			break
+		end
+	end
+
+	if #rooms > 0 and not done then
+		return
 	end
 
 	for i = 1, #room.points do
 		local point = room.points[i]
 		vadd(point, point, centre)
 	end
+
+	room.safehull = convex.offset(room.hull, margin)
 
 	local poly = {}
 	for i = 1, #room.hull do
@@ -201,6 +241,7 @@ function Level:_genrooms( numRooms, genfunc, extents, margin )
 end
 
 function Level:_connectRooms()
+	local start = love.timer.getTime()
 	local rooms = self.rooms
 	local centroids = {}
 
@@ -217,40 +258,44 @@ function Level:_connectRooms()
 	local connections = graphgen.gabriel(centroids)
 
 	self.connections = connections
+	printf('_connectRooms %.3fs', love.timer.getTime() - start)
 end
 
 function Level:_gencorridors( margin )
+	local start = love.timer.getTime()
 	-- Now create corridor the points along the edges.
-	local points = {}
+	local result = {}
 
+	local count = 1
 	for edge, verts in pairs(self.connections.edges) do
+		count = count + 1
 		local room1, room2 = verts[1].room, verts[2].room
 
 		-- Choose the nearest two points of the two rooms to connect.
-		local distance, near1, near2 = Vector.nearest(room1.points, room2.points)
+		-- local distance, near1, near2 = Vector.nearest(room1.points, room2.points)
+		local c1 = room1.centroid
+		local p1s = room1.points
+		local c2 = room2.centroid
+		local p2s = room2.points
+		local nearest = geometry.nearestOnLine
+		local ok, distance, near1, near2 = nearest(c1, p1s, c2, p2s, margin)
+		assert(ok)
 
 		-- This should always succeed.
 		if near1 and near2 then
+			local corridorPoints = { near1, near2 }
+
 			near1.terrain = 'floor'
 			near2.terrain = 'floor'
 			near1.corridor = true
 			near2.corridor = true
-
-			-- We already have the end points of the corridor so we only create
-			-- the internal points.
-			-- TODO: if numPoints < 1 then something has gone wrong, maybe
-			--       assert on it. Need to ensure the layoutgen functions
-			--       always leave at least 2*margin distance between rooms.
 			
 			local numPoints = math.round(distance / margin) - 1
-
-			if distance > margin * 0.75 and numPoints == 0 then
-				numPoints = 1
-			end
 
 			-- local numPoints = math.max(1, math.round(distance / margin) - 1)
 			local segLength = distance / (numPoints + 1)
 			local normal = Vector.to(near1, near2):normalise()
+			local perp = normal:perp()
 
 			for i = 1, numPoints do
 				local bias = 0.5
@@ -263,20 +308,43 @@ function Level:_gencorridors( margin )
 					x = near1.x + (i * segLength * normal.x),
 					y = near1.y + (i * segLength * normal.y),
 					terrain = 'floor',
-					corridor = true
+					corridor = true,
+					hulls = {}
 				}
 
-				points[#points+1] = point
+				local wall1 = {
+					x = near1.x + (i * segLength * normal.x) + (perp.x * margin),
+					y = near1.y + (i * segLength * normal.y) + (perp.y * margin),
+					terrain = 'wall',
+					hulls = {}
+				}
+
+				local wall2 = {
+					x = near1.x + (i * segLength * normal.x) + (-perp.x * margin),
+					y = near1.y + (i * segLength * normal.y) + (-perp.y * margin),
+					terrain = 'wall',
+					hulls = {}
+				}
+
+				corridorPoints[#corridorPoints+1] = point
+				corridorPoints[#corridorPoints+1] = wall1
+				corridorPoints[#corridorPoints+1] = wall2
+			end
+
+			table.append(result, corridorPoints)
+
+			local hull = convex.hull(corridorPoints)
+			for _, point in ipairs(corridorPoints) do
+				point.hulls[hull] = true
 			end
 		end
 	end
 
-	local all = self.points
-	for _, point in ipairs(points) do
-		all[#all+1] = point
-	end
+	table.append(self.points, result)
 
-	return points
+	printf('_gencorridors %.3fs', love.timer.getTime() - start)
+
+	return result
 end
 
 -- This is technically a slow algorithm but seems to be ok in practise.
@@ -284,6 +352,8 @@ end
 -- 2. For each cell try 10 times to create a random point within the cell.
 -- 3. Check the point isn't too close (within margin distance) of other points.
 function Level:_enclose( margin )
+	local start = love.timer.getTime()
+
 	-- make an array of all room and corridor points.
 
 	local points = self.points
@@ -294,14 +364,27 @@ function Level:_enclose( margin )
 
 	local width = math.ceil(aabb:width() / margin)
 	local height = math.ceil(aabb:height() / margin)
-
-	-- print('margin', margin)
-
 	margin = aabb:width() / width
 
-	-- print('margin', margin)
-
 	local grid = newgrid(width, height, false)
+	for x = 1, width do
+		for y = 1, height do
+			grid.set(x, y, { hulls = {} })
+		end
+	end
+
+	-- Any point within a cell could be too close to other cell neighbouring.
+	local dirs = {
+		{ -1,  0 },
+		{  0,  0 },
+		{  1,  0 },
+		{ -1, -1 },
+		{  0, -1 },
+		{  1, -1 },
+		{ -1,  1 },
+		{  0,  1 },
+		{  1,  1 },
+	}
 
 	for _, point in pairs(points) do
 		local x = math.round((point.x - aabb.xmin) / margin)
@@ -311,21 +394,19 @@ function Level:_enclose( margin )
 		assert(y ~= 1 and y ~= height)
 
 		local cell = grid.get(x, y)
+		cell[#cell+1] = point
 
-		if cell then
-			cell[#cell+1] = point
-		else
-			cell = { point, hulls = nil }
-			grid.set(x, y, cell)
-		end
-
-		if point.hull then
-			local hulls = cell.hulls
-
-			if hulls then
-				hulls[point.hull] = true
-			else
-				hulls = { [point.hull] = true }
+		local hulls = point.hulls
+		if hulls then
+			for _, dir in ipairs(dirs) do
+				local dx, dy = x + dir[1], y + dir[2]
+						
+				if 1 <= dx and dx <= width and 1 <= dy and dy <= height then
+					local cell = grid.get(dx, dy)
+					for hull in pairs(hulls) do
+						cell.hulls[hull] = true
+					end
+				end
 			end
 		end
 	end
@@ -339,16 +420,16 @@ function Level:_enclose( margin )
 		local top = grid.get(x, 1)
 		local bottom = grid.get(x, height)
 
-		assert(top == false)
-		assert(bottom == false)
+		assert(#top == 0)
+		assert(#bottom == 0)
 
 		local mx = aabb.xmin + ((x-1) * margin) + (margin * 0.5)
 
 		local topBorder = { x = mx, y = aabb.ymin + (margin * 0.5), terrain = border }
 		local bottomBorder = { x = mx, y = aabb.ymax - (margin * 0.5), terrain = border }
 
-		grid.set(x, 1, { topBorder })
-		grid.set(x, height, { bottomBorder })
+		top[1] = topBorder
+		bottom[1] = bottomBorder
 
 		result[#result+1] = topBorder
 		result[#result+1] = bottomBorder
@@ -358,35 +439,22 @@ function Level:_enclose( margin )
 		local left = grid.get(1, y)
 		local right = grid.get(width, y)
 
-		assert(left == false)
-		assertf(right == false, '[%d %d]', y, width)
+		assert(#left == 0)
+		assertf(#right == 0)
 
 		local my = aabb.ymin + ((y-1) * margin) + (margin * 0.5)
 
 		local leftWall = { x = aabb.xmin + (margin * 0.5), y = my, terrain = border }
 		local rightWall = { x = aabb.xmax - (margin * 0.5), y = my, terrain = border }
 
-		grid.set(1, y, { leftWall })
-		grid.set(width, y, { rightWall })
+		left[1] = leftWall
+		right[1] = rightWall
 
 		result[#result+1] = leftWall
 		result[#result+1] = rightWall
 	end
 
 	-- grid.print()
-
-	-- Any point within a cell could be too close to other cell neighbouring.
-	local dirs = {
-		{ 0, 0 },
-		{ -1, -1 },
-		{  0, -1 },
-		{  1, -1 },
-		{ -1,  0 },
-		{  1,  0 },
-		{ -1,  1 },
-		{  0,  1 },
-		{  1,  1 },
-	}
 
 	for x = 2, width-1 do
 		for y = 2, height-1 do
@@ -403,42 +471,33 @@ function Level:_enclose( margin )
 					local dx, dy = x + dir[1], y + dir[2]
 					
 					if 1 <= dx and dx <= width and 1 <= dy and dy <= height then
-						local cell = grid.get(dx, dy) or empty
+						local cell = grid.get(dx, dy)
 						for _, vertex in ipairs(cell) do
 							if Vector.toLength(vertex, candidate) < margin then
 								accepted = false
 								break
 							end
 						end
-						if cell.hulls then
-							for hull, _ in pairs(cell.hulls) do
-								hulls[hull] = true
-							end
-						end
-					end
-
-					for hull, _ in pairs(hulls) do
-						if convex.contains(hull, candidate) then
-							accepted = false
-							break
+						for hull, _ in pairs(cell.hulls) do
+							hulls[hull] = true
 						end
 					end
 
 					if not accepted then
 						break
+					else
+						for hull, _ in pairs(hulls) do
+							if convex.contains(hull, candidate) then
+								accepted = false
+								break
+							end
+						end
 					end
 				end
 
 				if accepted then
 					local cell = grid.get(x, y)
-
-					if cell then
-						cell[#cell+1] = candidate
-					else
-						cell = { candidate }
-						grid.set(x, y, cell)
-					end
-
+					cell[#cell+1] = candidate
 					result[#result+1] = candidate
 				end
 			end
@@ -456,9 +515,11 @@ function Level:_enclose( margin )
 		end
 		all[#all+1] = point
 	end
+
+	printf('_enclose() #%d %.2fs', #fillers + #borders, love.timer.getTime() - start)
 end
 
-function Level:_genvoronoi()
+function Level:_genvoronoi( margin )
 	local start = love.timer.getTime()
 
 	-- Build voronoi diagram.
@@ -525,23 +586,29 @@ function Level:_genvoronoi()
 	end
 
 	-- Now the connections.
-	for _, cell in ipairs(diagram.cells) do
-		local neighbours = cell:getNeighborIdAndEdgeLengths()
 
-		local vertex1 = points[cell.site.index]
+	-- TODO: this should be a parameter
+	local minlen = margin * 0.3
+	for _, edge in ipairs(diagram.edges) do
+		local lSite, rSite = edge.lSite, edge.rSite
 
-		for _, neighbour in ipairs(neighbours) do
-			local vertex2 = points[diagram.cells[neighbour.voronoiId].site.index]
-			
-			if not graph:isPeer(vertex1, vertex2) then
-				graph:addEdge({ length = neighbour.edgeLength }, vertex1, vertex2)
-			end
+		if lSite and rSite then
+			local edgeLen = Vector.toLength(edge.va, edge.vb)
 
-			local walkable1 = vertex1.terrain == 'floor'
-			local walkable2 = vertex2.terrain == 'floor'
+			if edgeLen > minlen then
+				local vertex1 = points[lSite.index]
+				local vertex2 = points[rSite.index]
+				
+				if not graph:isPeer(vertex1, vertex2) then
+					graph:addEdge({ length = edgeLen }, vertex1, vertex2)
+				end
 
-			if walkable1 and walkable2 and not walkable:isPeer(vertex1, vertex2) then
-				walkable:addEdge({ length = neighbour.edgeLength }, vertex1, vertex2)
+				local walkable1 = vertex1.terrain == 'floor'
+				local walkable2 = vertex2.terrain == 'floor'
+
+				if walkable1 and walkable2 and not walkable:isPeer(vertex1, vertex2) then
+					walkable:addEdge({ length = edgeLen }, vertex1, vertex2)
+				end
 			end
 		end
 	end
@@ -574,6 +641,43 @@ function Level:_genvoronoi()
 
 	local finish = love.timer.getTime()
 	printf('_genvoronoi %.3fs', finish-start)
+end
+
+function Level:_trim()
+	local start = love.timer.getTime()
+
+	local walkable = self.walkable
+	local vertices = walkable.vertices
+
+	local closed = {}
+	local islands = {}
+
+	for vertex in pairs(vertices) do
+		if not closed[vertex] then
+			local island = walkable:dmap(vertex)
+			local population = table.count(island)
+
+			for islander in pairs(island) do
+				closed[islander] = true
+				islands[island] = population
+			end
+		end
+	end
+
+	local minpop = 5
+	local total = 0
+	for island, population in pairs(islands) do
+		if population < minpop then
+			for islander in pairs(island) do
+				islander.terrain = 'wall'
+				walkable:removeVertex(islander)
+				total = total + 1
+			end
+		end
+	end
+
+	local finish = love.timer.getTime()
+	printf('_trim #%d %.3fs', total, finish - start)
 end
 
 function Level:_gendirs()
@@ -727,6 +831,61 @@ function Level:_genentry()
 
 	local finish = love.timer.getTime()
 	printf('_genentry d:%d/%d %.3fs', distance, self.longestPath, finish-start)
+end
+
+function Level:_gencritical()
+	local start = love.timer.getTime()
+
+	local paths = self.paths
+	local edst = paths[self.entry]
+	local xdst = paths[self.exit]
+
+	local function edgeFilter( edge, from, to )
+		local furtherFromEntry = edst[from] < edst[to]
+		local nearerToExit = xdst[to] < xdst[from]
+
+		return furtherFromEntry and nearerToExit
+	end
+
+	local maxdepth = math.huge
+	local critical = self.walkable:edgeFilteredDistanceMap(self.entry, maxdepth, edgeFilter)
+
+	for vertex, depth in pairs(critical) do
+		vertex.critical = true
+	end
+
+	self.critical = critical
+
+	local finish = love.timer.getTime()
+	printf('_critical %.3fs', finish-start)
+end
+
+local numTested = 0
+local numConnected = 0
+local numCorridors = 0
+
+function Level:isConnected()
+	local walkable = self.walkable
+	local connected = walkable:isConnected()
+	
+	local corridors = true
+	local valences = walkable.valences
+	for vertex in pairs(walkable.vertices) do
+		if vertex.corridor and valences[vertex] < 2 then
+			corridors = false
+			break
+		end
+	end
+
+	printf('isConnected connected:%s corridors:%s', connected, corridors)
+
+	numTested = numTested + 1
+	numConnected = numConnected + (connected and 1 or 0)
+	numCorridors = numCorridors + (corridors and 1 or 0)
+
+	printf(' total:%d conn:%d corr:%d', numTested, numConnected, numCorridors)
+
+	return connected and corridors
 end
 
 return Level

@@ -948,7 +948,7 @@ function Graph:dotFile( name, vertexLabeller )
 	return table.concat(parts, '\n')
 end
 
-if arg then
+if false then
 	local test = Graph.new()
 	test:addVertex(1)
 	test:addVertex(2)

@@ -259,43 +259,47 @@ function AABB:merge( other )
 	self.ymax = math.max(self.ymax, other.ymax)
 end
 
-local test1 = AABB.new {
-	xmin = 0,
-	xmax = 2,
-	ymin = 0,
-	ymax = 1
-}
+function AABB:__tostring()
+	return string.format('[%s, %s] -> [%s, %s]', self.xmin, self.ymin, self.xmax, self.ymax)
+end
 
-local test2 = AABB.new {
-	xmin = 0,
-	xmax = 1,
-	ymin = 0,
-	ymax = 2,
-}
+-- local test1 = AABB.new {
+-- 	xmin = 0,
+-- 	xmax = 2,
+-- 	ymin = 0,
+-- 	ymax = 1
+-- }
 
-print(test1:width(), test1:height())
-print(test2:width(), test2:height())
-test1:similarise(test2)
-print(test1:width(), test1:height())
+-- local test2 = AABB.new {
+-- 	xmin = 0,
+-- 	xmax = 1,
+-- 	ymin = 0,
+-- 	ymax = 2,
+-- }
 
-local test1 = AABB.new {
-	xmin = 0,
-	xmax = 1,
-	ymin = 0,
-	ymax = 3
-}
+-- print(test1:width(), test1:height())
+-- print(test2:width(), test2:height())
+-- test1:similarise(test2)
+-- print(test1:width(), test1:height())
 
-local test2 = AABB.new {
-	xmin = 0,
-	xmax = 3,
-	ymin = 0,
-	ymax = 1,
-}
+-- local test1 = AABB.new {
+-- 	xmin = 0,
+-- 	xmax = 1,
+-- 	ymin = 0,
+-- 	ymax = 3
+-- }
 
-print(test1:width(), test1:height())
-print(test2:width(), test2:height())
-test1:similarise(test2)
-print(test1:width(), test1:height())
+-- local test2 = AABB.new {
+-- 	xmin = 0,
+-- 	xmax = 3,
+-- 	ymin = 0,
+-- 	ymax = 1,
+-- }
+
+-- print(test1:width(), test1:height())
+-- print(test2:width(), test2:height())
+-- test1:similarise(test2)
+-- print(test1:width(), test1:height())
 
 
 return AABB

@@ -43,7 +43,7 @@ function geometry.projectPointOntoLineSegment( p, l1, l2, result )
     return result
 end
 
-function geometry.closestPointOnLine( lineA, lineB, point )
+function geometry.closestPointOnLine( lineA, lineB, point, result )
 	local aToP = Vector.to(lineA, point)
 	local aToB = Vector.to(lineA, lineB)
     local aToBSqrLen = Vector.dot(aToB, aToB)
@@ -56,10 +56,54 @@ function geometry.closestPointOnLine( lineA, lineB, point )
     	t = 1
     end
 
-    return Vector.new {
-    	x = lineA.x + aToB.x * t,
-    	y = lineA.y + aToB.y * t,
-	}
+    result = result or Vector.new { x=0, y=0 }
+    result.x = lineA.x + aToB.x * t
+    result.y = lineA.y + aToB.y * t
+
+    return result
+end
+
+-- The line is between centre1 and centre2
+-- - Find all points in points1 that are within margin distance of the line.
+-- - Of the selected points pick the closest to centre2.
+-- - Repeat for points2 and centre1.
+function geometry.nearestOnLine( centre1, points1, centre2, points2, margin )
+	local vsub = Vector.sub
+	local vtolen = Vector.toLength
+	local project = geometry.projectPointOntoLineSegment
+	local proj = Vector.new { x=0, y=0 }
+
+	local candidates1 = {}
+	for i = 1, #points1 do
+		local point1 = points1[i]
+		project(point1, centre1, centre2, proj)
+		if vtolen(proj, point1) <= margin then
+			candidates1[#candidates1+1] = point1
+		end
+	end
+
+	if #candidates1 == 0 then
+		return false
+	end
+
+	local _, near1, _ = Vector.nearest(candidates1, { centre2 })
+
+	local candidates2 = {}
+	for i = 1, #points2 do
+		local point2 = points2[i]
+		project(point2, centre1, centre2, proj)
+		if vtolen(proj, point2) <= margin then
+			candidates2[#candidates2+1] = point2
+		end
+	end
+
+	if #candidates2 == 0 then
+		return false
+	end
+
+	local _, near2, _ = Vector.nearest(candidates2, { centre1 })
+
+	return true, vtolen(near1, near2), near1, near2
 end
 
 local _r = Vector.new { x=0, y=0 }

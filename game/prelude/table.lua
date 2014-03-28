@@ -39,8 +39,9 @@ function table.count( tbl )
 end
 
 function table.append( tbl1, tbl2 )
+	local offset = #tbl1
 	for i = 1, #tbl2 do
-		tbl1[#tbl1+1] = tbl2[i]
+		tbl1[offset+i] = tbl2[i]
 	end
 
 	return tbl1
