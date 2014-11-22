@@ -8,9 +8,9 @@ local Layers = require 'src/Layers'
 local actions = {}
 
 -- action = {
---     blocking = <boolean>,
---     anim = function ( time ) -> boolean, offset
---     effect = function ( gameState )
+--     sync = <boolean>,
+--     plan = function ( time ) -> fx
+--     playerDeath = <boolean> | nil
 -- }
 
 -- parabola = -((2*(x-0.5))^2) + 1
@@ -34,9 +34,13 @@ function actions.kill( gameState, actor )
 		return false
 	end
 
+	local player = gameState.player
+	local playerDeath = actor == player and player ~= nil
+
 	return {
 		sync = false,
-		plan = plan
+		plan = plan,
+		playerDeath = playerDeath
 	}
 end
 
@@ -279,9 +283,13 @@ function actions.melee( gameState, actor, targetVertex )
 		}
 	end
 
+	local player = gameState.player
+	local playerDeath = target == player and player ~= nil
+
 	return {
 		sync = true,
-		plan = plan
+		plan = plan,
+		playerDeath = playerDeath
 	}
 end
 
@@ -351,20 +359,30 @@ function actions.leap( gameState, actor, targetVertex )
 		end
 	end
 
+	local player = gameState.player
+	local playerDeath = target == player and player ~= nil
+
 	return {
 		sync = true,
-		plan = plan
+		plan = plan,
+		playerDeath = playerDeath
 	}
 end
 
 function actions.explode( gameState, actor )
 	local dijkstra = gameState:dijkstraMap(actor, 1)
 	local victims = { actor }
+	local player = gameState.player
+	local playerDeath = false
 
 	for vertex, distance in pairs(dijkstra) do
 		local victim = gameState:actorAt(Layers.CRITTER, vertex)
 
 		if victim and victim.tag ~= 'bomb' then
+			if victim == player and player ~= nil then
+				playerDeath = true
+			end
+
 			victims[#victims+1] = victim
 		end
 	end
@@ -400,7 +418,8 @@ function actions.explode( gameState, actor )
 
 	return {
 		sync = true,
-		plan = plan
+		plan = plan,
+		playerDeath = playerDeath
 	}
 end
 
@@ -472,9 +491,13 @@ function actions.throw( gameState, actor, targetVertex, def, text )
 		end
 	end
 
+	local player = gameState.player
+	local playerDeath = target == player and player ~= nil
+
 	return {
 		sync = true,
-		plan = plan
+		plan = plan,
+		playerDeath = playerDeath
 	}
 end
 

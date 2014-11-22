@@ -12,6 +12,7 @@ local Layers = require 'src/Layers'
 local GameState = require 'src/GameState'
 local behaviours = require 'src/behaviours'
 local actions = require 'src/actions'
+local render = require 'src/render'
 
 local function shadowf( align, x, y, ... )
 	love.graphics.setColor(0, 0, 0, 255)
@@ -45,6 +46,7 @@ function GameMode:enter( reason )
 
 	self.time = 0
 	self.depth = 1
+	self.playerDying = false
 	self:gen()
 end
 
@@ -175,92 +177,113 @@ function GameMode:resetFX()
 	}
 end
 
+function GameMode:_updatePending( dt )
+	local pending = self.pending
+	if not pending then
+		return
+	end
+
+
+	local adt = (self.fastmode) and math.huge or dt
+
+	local done = true
+	local unsynced = pending.unsynced
+	for i = #unsynced, 1, -1 do
+		local action = unsynced[i]
+		local running, fx = action.plan(action.time)
+		self:addFX(fx)
+
+		if running then
+			done = false
+			action.time = action.time + adt
+		else
+			table.remove(unsynced, i)
+		end
+	end
+
+	if done then
+		pending.unsynced = {}
+
+		local synced = pending.synced
+		if not synced then
+			self.pending = nil
+		else
+			local running, fx = synced.plan(synced.time)
+			self:addFX(fx)
+
+			if running then
+				local sdt = dt
+				if synced.playerDeath then
+					self.playerDying = true
+					sdt = sdt * 0.25
+				end
+				synced.time = synced.time + sdt
+			else
+				self.pending = nil
+			end
+		end
+	else
+		pending.time = pending.time + dt
+	end
+end
+
+function GameMode:_poll()
+	if self.pending then
+		return
+	end
+
+	local unsynced = {}
+	local blockers = {}
+
+	local start = love.timer.getTime()
+
+	while true do
+		local action, actor = self.gameState:nextAction(blockers)
+	
+		if not action then
+			if #unsynced > 0 then
+				self.pending = {
+					time = 0,
+					unsynced = unsynced
+				}
+			end
+			break
+		end
+
+		-- Don't want any more actions from this actor.
+		blockers[actor] = true
+
+		if not action.sync then
+			unsynced[#unsynced+1] = {
+				time = 0,
+				plan = action.plan
+			}
+		else
+			printf('synced pd:%s', action.playerDeath)
+			self.pending = {
+				time = 0,
+				unsynced = unsynced,
+				synced = {
+					time = 0,
+					plan = action.plan,
+					playerDeath = action.playerDeath
+				}
+			}
+			break
+		end
+	end
+end
+
 function GameMode:update( dt )
 	self.time = self.time + dt
 
 	local start = love.timer.getTime()
 
-	local adt = (self.fastmode) and math.huge or dt
-
-	if not self.pending then
-		local unsynced = {}
-		local blockers = {}
-
-		local start = love.timer.getTime()
-
-		while true do
-			local action, actor = self.gameState:nextAction(blockers)
-		
-			if not action then
-				if #unsynced > 0 then
-					self.pending = {
-						unsynced = unsynced
-					}
-				end
-				break
-			end
-
-			-- Don't want any more actions from this actor.
-			blockers[actor] = true
-
-			if not action.sync then
-				unsynced[#unsynced+1] = {
-					time = 0,
-					plan = action.plan
-				}
-			else
-				self.pending = {
-					unsynced = unsynced,
-					synced = {
-						time = 0,
-						plan = action.plan,
-					}
-				}
-				break
-			end
-		end
-
-		local finish = love.timer.getTime()
-
-		if self.pending then
-			printf('action polling %ss', finish - start)
-		end
-	end
-
-	local pending = self.pending
-	if pending then
-		local done = true
-		local unsynced = pending.unsynced
-		for i = #unsynced, 1, -1 do
-			local action = unsynced[i]
-			local running, fx = action.plan(action.time)
-			self:addFX(fx)
-
-			if running then
-				done = false
-				action.time = action.time + adt
-			else
-				table.remove(unsynced, i)
-			end
-		end
-
-		if done then
-			pending.unsynced = {}
-
-			local synced = pending.synced
-			if not synced then
-				self.pending = nil
-			else
-				local running, fx = synced.plan(synced.time)
-				self:addFX(fx)
-
-				if running then
-					synced.time = synced.time + dt
-				else
-					self.pending = nil
-				end
-			end
-		end
+	self:_poll()
+	self:_updatePending(dt)
+	if not self.pending and self.gameState.player then
+		self:_poll()
+		self:_updatePending(dt)
 	end
 
 	for actor in pairs(self.gameState.actors) do
@@ -418,6 +441,13 @@ function GameMode:draw()
 	end
 
 	love.graphics.pop()
+
+	if self.pending then
+		local x, y = 750, 50
+		local radius = 30
+		local theta = math.pi + (-4 * math.pi * self.time)
+		render.clock(x, y, radius, theta)
+	end
 
 	local depthtext = self.depth == MAX_DEPTH and ' (final level) ' or ' '
 	local fasttext = self.fastmode and '- fast' or ''

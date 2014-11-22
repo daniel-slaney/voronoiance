@@ -15,7 +15,7 @@ function love.conf( t )
     t.window.fullscreentype = "normal" -- Standard fullscreen or desktop fullscreen mode (string)
     t.window.vsync = true              -- Enable vertical sync (boolean)
     -- t.window.vsync = false              -- Enable vertical sync (boolean)
-    t.window.fsaa = 0                  -- The number of samples to use with multi-sampled antialiasing (number)
+    t.window.fsaa = 2                  -- The number of samples to use with multi-sampled antialiasing (number)
     t.window.display = 1               -- Index of the monitor to show the window in (number)
 
     -- t.modules.audio = true             -- Enable the audio module (boolean)
