@@ -49,7 +49,8 @@ function GameState.new()
 		player = nil,
 		playerAction = nil,
 		seen = {},
-		fovDepth = 7,
+		-- fovDepth = 7,
+		fovDepth = 1000,
 		turns = 0,
 	}
 

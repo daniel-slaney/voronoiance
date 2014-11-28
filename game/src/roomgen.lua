@@ -248,6 +248,89 @@ function roomgen.hexgrid( bbox, margin, terrain )
 
 	return result, graph, nil
 end
+
+function roomgen.trigrid( bbox, margin, terrain )
+	-- printf('roomgen.trigrid')
+	local result = {}
+
+	local w = bbox:width()
+	local h = bbox:height()
+
+	local theta = math.pi / 3
+	local xmargin = margin * math.sin(theta)
+	local ymargin = margin * math.cos(theta)
+
+	local numx, gapx = math.modf(w / xmargin)
+	local numy, gapy = math.modf(h / (margin + ymargin))
+	numx, numy = numx + 1, numy + 1
+	gapx, gapy = gapx * margin, gapy * margin
+
+	local xmin = bbox.xmin + (gapx * 0.5)
+	local ymin = bbox.ymin + (gapy * 0.5)
+
+	local rows = {}
+	local graph = Graph.new()
+
+	for y = 0, numy-1 do
+		local yeven = (y % 2) == 0
+
+		local row = {}
+
+		for x = 0, numx-1 do
+			local xeven = (x % 2) == 0
+
+			local vx = xmin + (x * xmargin)
+			local vy = ymin + (y * (ymargin + margin)) + (yeven == xeven and 0 or ymargin)
+
+			local terrain = 'floor'
+			if y == 0 or y == numy-1 or x == 0 or x == numx-1 then
+				-- terrain = 'wall'
+			end
+
+			local v = vertex(vx, vy, terrain)
+			result[#result+1] = v
+			row[x+1] = v
+			graph:addVertex(v)
+		end
+
+		rows[y+1] = row
+	end
+
+	local same = {
+		-- { -1, 0 },
+		{ 1, 0 },
+		{ 0, -1 }
+	}
+
+	local diff = {
+		-- { -1, 0 },
+		{ 1, 0 },
+		-- { 0, -1 }
+	}
+
+	local empty = {}
+
+	for y, row in ipairs(rows) do
+		local yeven = ((y-1) % 2) == 0
+		for x, v in ipairs(row) do
+			local xeven = ((x-1) % 2) == 0
+			
+			local lookup = (yeven == xeven) and same or diff
+
+			for _, dir in ipairs(lookup) do
+				local dx, dy = x+dir[1], y+dir[2]
+
+				local dv = (rows[dy] or empty)[dx]
+			
+				if dv and not graph:isPeer(v, dv) then
+					graph:addEdge({}, v, dv)
+				end
+			end
+		end
+	end
+
+	return result, graph, nil
+end
 	
 function roomgen.relaxed( aabb, margin, terrain )
 	local start = love.timer.getTime()
@@ -473,6 +556,7 @@ end
 
 roomgen.browniangrid = brownian(roomgen.grid)
 roomgen.brownianhexgrid = brownian(roomgen.hexgrid)
+roomgen.browniantrigrid = brownian(roomgen.trigrid)
 roomgen.brownianenclose = brownian(roomgen.enclose)
 roomgen.brownianrelaxed = brownian(roomgen.relaxed)
 
@@ -480,6 +564,7 @@ local _genfuncs = {
 	roomgen.browniangrid,
 	roomgen.brownianhexgrid,
 	roomgen.brownianrelaxed,
+	roomgen.browniantrigrid
 }
 
 function roomgen.random( bbox, margin )
