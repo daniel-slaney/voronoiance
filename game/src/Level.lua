@@ -157,7 +157,8 @@ function Level:_insertRoom( genfunc, extents, margin )
 
 	local done = false
 	for attempt = 1, 10 do
-		local theta = math.random() * math.pi * 2
+		-- local theta = math.random() * math.pi * 2
+		local theta = math.random(0, 7) * math.pi * 0.5
 		dir.x = math.sin(theta)
 		dir.y = math.cos(theta)
 
@@ -854,7 +855,14 @@ function Level:_gencritical()
 		vertex.critical = true
 	end
 
+	local fringe, maxdepth = self.walkable:multiSourceDistanceMap(critical)
+
+	for vertex, depth in pairs(fringe) do
+		fringe[vertex] = 1 - (depth/maxdepth)
+	end
+
 	self.critical = critical
+	self.fringe = fringe
 
 	local finish = love.timer.getTime()
 	printf('_critical %.3fs', finish-start)

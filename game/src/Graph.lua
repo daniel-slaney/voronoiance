@@ -361,7 +361,7 @@ function Graph:multiSourceDistanceMap( sources, maxdepth )
 		frontier = newFrontier
 	end
 
-	return result
+	return result, depth
 end
 
 function Graph:vertexFilteredMultiSourceDistanceMap( sources, maxdepth, vertexFilter )

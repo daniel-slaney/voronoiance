@@ -249,6 +249,36 @@ function roomgen.hexgrid( bbox, margin, terrain )
 	return result, graph, nil
 end
 
+local function trim( result, graph, overlay )
+
+	for vertex, peers in pairs(graph.vertices) do
+		if vertex.terrain == 'wall' then
+			local isolated = true
+			for other, edge in pairs(peers) do
+				if other.terrain ~= 'wall' then
+					isolated = false
+				end
+			end
+
+			if isolated then
+				graph:removeVertex(vertex)
+				if overlay ~= nil and overlay.vertices[vertex] then
+					overlay:removeVertex(overlay)
+				end
+				
+				for i, point in ipairs(result) do
+					if point == vertex then
+						table.remove(result, i)
+						break
+					end
+				end
+			end
+		end
+	end
+
+	return result, graph, overlay
+end
+
 function roomgen.trigrid( bbox, margin, terrain )
 	-- printf('roomgen.trigrid')
 	local result = {}
@@ -284,7 +314,7 @@ function roomgen.trigrid( bbox, margin, terrain )
 
 			local terrain = 'floor'
 			if y == 0 or y == numy-1 or x == 0 or x == numx-1 then
-				-- terrain = 'wall'
+				terrain = 'wall'
 			end
 
 			local v = vertex(vx, vy, terrain)
@@ -329,7 +359,8 @@ function roomgen.trigrid( bbox, margin, terrain )
 		end
 	end
 
-	return result, graph, nil
+	-- return result, graph, nil
+	return trim(result, graph, nil)
 end
 	
 function roomgen.relaxed( aabb, margin, terrain )
@@ -565,6 +596,7 @@ local _genfuncs = {
 	roomgen.brownianhexgrid,
 	roomgen.brownianrelaxed,
 	roomgen.browniantrigrid
+	-- roomgen.trigrid
 }
 
 function roomgen.random( bbox, margin )

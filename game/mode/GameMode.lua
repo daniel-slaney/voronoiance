@@ -340,6 +340,8 @@ function GameMode:draw()
 			end
 		end)
 
+	local drawFringe = true
+
 	for point in pairs(fov) do
 		if fov[point] then
 			if point.terrain == 'floor' then
@@ -348,6 +350,9 @@ function GameMode:draw()
 					local a = 255
 
 					love.graphics.setColor(c, c, c, 255)
+				elseif drawFringe then
+					local f = self.gameState.level.fringe[point]
+					love.graphics.setColor(184*f, 118*f, 61*f, 255)
 				else
 					love.graphics.setColor(184, 118, 61, 255)
 				end

@@ -24,7 +24,7 @@ function LevelMode:gen()
 	-- local genfunc = roomgen.brownianrelaxed
 	local margin = 40
 	local min = margin * 7
-	local max = margin * 7
+	local max = margin * 10
 	local extents = {
 		width = {
 			min = min,
@@ -35,7 +35,7 @@ function LevelMode:gen()
 			max = max,
 		},
 	}
-	local numRooms = 7
+	local numRooms = 9
 
 	self.level = Level.new(numRooms, genfunc, extents, margin, false)
 end
@@ -76,12 +76,18 @@ function LevelMode:draw()
 		local rooms = self.level.rooms
 
 		if drawVoronoi then
+			local drawFringe = true
 			for _, point in ipairs(self.level.points) do
 				if point.critical then
 					local b = 64
 					love.graphics.setColor(184+b, 118+b, 61+b, 255)
 				elseif point.terrain == 'floor' then
-					love.graphics.setColor(184, 118, 61, 255)
+					if drawFringe then
+						local f = self.level.fringe[point]
+						love.graphics.setColor(184*f, 118*f, 61*f, 255)
+					else
+						love.graphics.setColor(184, 118, 61, 255)
+					end
 				else
 					love.graphics.setColor(64, 64, 64, 255)
 				end
